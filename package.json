@@ -1,0 +1,12 @@
+{
+  "name": "sbti-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Backend + database untuk SBTI Management System (tanpa dependency, pakai SQLite bawaan Node)",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test.mjs"
+  },
+  "engines": { "node": ">=22.13" }
+}
