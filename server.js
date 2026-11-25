@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { db, all, get, run, tx, SABUK } from './db.js';
 
 const PORT = +process.env.PORT || 3000;
-const HERE = path.dirname(fileURLToPath(import.meta.url));
+const PUB = path.resolve(process.env.STATIC_DIR || HERE);
 const PUB = path.resolve(process.env.STATIC_DIR || path.join(HERE, 'public'));
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '';
 const TRUST_PROXY = process.env.TRUST_PROXY === '1';
