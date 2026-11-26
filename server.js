@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { db, all, get, run, tx, SABUK } from './db.js';
 
 const PORT = +process.env.PORT || 3000;
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PUB = path.resolve(process.env.STATIC_DIR || HERE);
-const CORS_ORIGIN = process.env.CORS_ORIGIN || '';
 const TRUST_PROXY = process.env.TRUST_PROXY === '1';
 const TZ_OFFSET = +(process.env.TZ_OFFSET ?? 7);
 const SESSION_DAYS = 30;
@@ -423,5 +423,5 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => console.log(`SBTI backend jalan di http://localhost:${PORT}  (DB: ${db.location?.() ?? 'sqlite'})`));
+server.listen(PORT, '0.0.0.0', () => console.log(`SBTI backend jalan di http://localhost:${PORT}  (DB: ${db.location?.() ?? 'sqlite'})`));
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { server.close(() => { try { db.close(); } catch {} process.exit(0); }); });
