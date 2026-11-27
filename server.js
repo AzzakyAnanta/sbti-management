@@ -82,6 +82,7 @@ const kvGet = k => { const r = get('SELECT v FROM kv WHERE k=?', k); try { retur
 const kvSet = (k, v) => run('INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v', k, JSON.stringify(v));
 const kvDel = k => run('DELETE FROM kv WHERE k=?', k);
 
+try { db.exec('ALTER TABLE staff ADD COLUMN pass_hash TEXT'); } catch {}
 if (!kvGet('kode')) kvSet('kode', DEFAULT_KODE_PELATIH);
 
 function struktur() {
