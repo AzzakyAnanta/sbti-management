@@ -408,8 +408,9 @@ async function nSave(u) {
 
 function rptHTML(u, p) {
   const m = S.murid[u], r = rap(u, p);
+  const nilaiMurid = Object.values(S.nilai || {}).find(n => n.uid === u && ym(S.sesi?.[n.sesi]?.tgl) === p && n.oleh)?.oleh;
   const pelatihSesi = Object.values(S.sesi || {}).find(s => ym(s.tgl) === p && (!s.unit || s.unit === m.unit) && s.pelatih)?.pelatih;
-  const namaPelatih = pelatihSesi || Object.values(S.staff || {})[0]?.nama || '-';
+  const namaPelatih = (role === 'pelatih' ? S.staff[uid]?.nama : '') || nilaiMurid || pelatihSesi || '-';
   const fotoBox = m.foto
     ? `<img src="${m.foto}" alt="Foto ${E(m.nama)}" style="width:112px;height:148px;object-fit:cover;border:1.5px solid #cbd5e1;border-radius:6px;display:block">`
     : `<div style="width:112px;height:148px;border:1.5px dashed #94a3b8;border-radius:6px;display:flex;align-items:center;justify-content:center;text-align:center;color:#64748b;font-size:11.5px;padding:6px;background:#f8fafc">Pas Foto<br>3x4</div>`;
