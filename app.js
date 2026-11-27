@@ -199,16 +199,17 @@ function authHTML() {
     if (mode === 'daftar') {
       const ws = listWilayah(PUB);
       c = `
-        <input id="rn" placeholder="Nama lengkap" value="${E(v('rn'))}">
+        <input id="rn" placeholder="Nama lengkap *" value="${E(v('rn'))}" required>
         <select id="rj">
-          <option ${v('rj') === 'Perempuan' ? '' : 'selected'}>Laki-laki</option>
-          <option ${v('rj') === 'Perempuan' ? 'selected' : ''}>Perempuan</option>
+          <option value="Laki-laki" ${v('rj') === 'Perempuan' ? '' : 'selected'}>Laki-laki</option>
+          <option value="Perempuan" ${v('rj') === 'Perempuan' ? 'selected' : ''}>Perempuan</option>
         </select>
-        <input id="rt" placeholder="Nomor telepon (opsional)" value="${E(v('rt'))}">
-        <input id="rw" list="wilayah-suggest" placeholder="Wilayah (mis. Tangerang Kota / Jakarta Barat)" value="${E(v('rw'))}">
+        <input id="rt" placeholder="Nomor telepon *" value="${E(v('rt'))}" required>
+        <input id="rw" list="wilayah-suggest" placeholder="Wilayah (mis. Tangerang Kota / Jakarta Barat) *" value="${E(v('rw'))}" required>
         <datalist id="wilayah-suggest">${ws.map(w => `<option value="${E(w.nama)}">`).join('')}</datalist>
-        <select id="rs">${SABUK_LIST.map(sb => `<option value="${sb.id}">Sabuk ${E(sb.nama)}</option>`).join('')}</select>
-        <input id="rp" type="password" placeholder="Buat kata sandi (min. 4 karakter)">
+        <select id="rs">${SABUK_LIST.map(sb => `<option value="${sb.id}" ${v('rs') === sb.id ? 'selected' : ''}>Sabuk ${E(sb.nama)}</option>`).join('')}</select>
+        <input id="ro" placeholder="No. Anggota (contoh: SBTI-001) *" value="${E(v('ro'))}" required>
+        <input id="rp" type="password" placeholder="Buat kata sandi *" required>
         <button class="b p w" onclick="daftar()">Daftar & Masuk</button>
         <p class="m">Sudah punya akun? <a href="#" onclick="mode='login';render();return false">Masuk</a></p>`;
     } else {
@@ -219,20 +220,31 @@ function authHTML() {
         <p class="m">Murid baru? <a href="#" onclick="mode='daftar';render();return false">Daftar dulu</a></p>`;
     }
   } else {
-    c = `
-      <input id="pn" placeholder="Nama Anda">
-      <input id="pk" type="${SHOW_CODE ? 'text' : 'password'}" placeholder="Kode akses pelatih">
-      <label class="m" style="display:flex;align-items:center;gap:6px;margin:4px 0 10px;cursor:pointer">
-        <input type="checkbox" style="width:auto;margin:0" ${SHOW_CODE ? 'checked' : ''} onchange="SHOW_CODE=this.checked;render()"> Tampilkan kode
-      </label>
-      <button class="b p w" onclick="doLogin('pelatih',{nama:v('pn'),kode:v('pk')})">Masuk</button>
-      <p class="m">Masukkan nama dan kode akses pelatih. Huruf besar/kecil dan spasi tidak berpengaruh.</p>`;
+    if (mode === 'daftar') {
+      c = `
+        <input id="rpn" placeholder="Nama lengkap pelatih *" value="${E(v('rpn'))}" required>
+        <input id="rpp" type="${SHOW_CODE ? 'text' : 'password'}" placeholder="Buat kata sandi sendiri *" required>
+        <label class="m" style="display:flex;align-items:center;gap:6px;margin:4px 0 10px;cursor:pointer">
+          <input type="checkbox" style="width:auto;margin:0" ${SHOW_CODE ? 'checked' : ''} onchange="SHOW_CODE=this.checked;render()"> Tampilkan kata sandi
+        </label>
+        <button class="b p w" onclick="daftarPelatih()">Daftar & Masuk</button>
+        <p class="m">Sudah punya akun pelatih? <a href="#" onclick="mode='login';render();return false">Masuk</a></p>`;
+    } else {
+      c = `
+        <input id="pn" placeholder="Nama lengkap pelatih">
+        <input id="pk" type="${SHOW_CODE ? 'text' : 'password'}" placeholder="Kata sandi pelatih">
+        <label class="m" style="display:flex;align-items:center;gap:6px;margin:4px 0 10px;cursor:pointer">
+          <input type="checkbox" style="width:auto;margin:0" ${SHOW_CODE ? 'checked' : ''} onchange="SHOW_CODE=this.checked;render()"> Tampilkan kata sandi
+        </label>
+        <button class="b p w" onclick="doLogin('pelatih',{nama:v('pn'),password:v('pk')})">Masuk</button>
+        <p class="m">Pelatih baru? <a href="#" onclick="mode='daftar';render();return false">Daftar & buat kata sandi sendiri</a></p>`;
+    }
   }
 
   return `<div class="hero">
     <div class="side"><img class="lg2" src="${s.logo}"><h1>${E(s.nama)}</h1><p>${E(s.tag)}</p><p style="opacity:.9">${E(s.sambutan)}</p></div>
     <div class="box">
-      <div class="tabs">${['murid', 'pelatih'].map(x => `<a class="${tab === x ? 'on' : ''}" onclick="tab='${x}';render()">${cap(x)}</a>`).join('')}</div>
+      <div class="tabs">${['murid', 'pelatih'].map(x => `<a class="${tab === x ? 'on' : ''}" onclick="tab='${x}';mode='login';render()">${cap(x)}</a>`).join('')}</div>
       ${c}
     </div>
   </div>`;
@@ -497,7 +509,37 @@ async function del(p) { try { await API('del', { body: { path: p } }); await loa
 async function load(force) { try { const j = await API('data'), s = JSON.stringify(j.S); S = j.S; if (s !== last || force) { const a = document.activeElement, typing = a && $('#app').contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName); if (force || !typing) { last = s; render(); } } } catch (e) { if (e.code === 401) keluar(); } }
 async function begin(j) { TOKEN = j.token; localStorage.setItem('sbti_token', TOKEN); uid = j.uid; role = j.role; entered = true; view = ''; sel = null; await load(true); }
 async function doLogin(r, b) { try { await begin(await API('login', { body: { role: r, ...b } })); } catch (e) { toast(e.message); } }
-async function daftar() { try { await begin(await API('register', { body: { nama: v('rn'), jk: v('rj'), telp: v('rt'), wilayah: v('rw'), sabuk: v('rs'), password: v('rp') } })); } catch (e) { toast(e.message); } }
+async function daftar() {
+  const fields = [
+    ['rn', 'Nama lengkap wajib diisi!'],
+    ['rj', 'Jenis kelamin wajib dipilih!'],
+    ['rt', 'Nomor telepon wajib diisi!'],
+    ['rw', 'Wilayah wajib diisi!'],
+    ['rs', 'Tingkatan sabuk wajib dipilih!'],
+    ['ro', 'Nomor anggota wajib diisi!'],
+    ['rp', 'Kata sandi wajib diisi!']
+  ];
+  for (const [id, msg] of fields) {
+    if (!v(id).trim()) {
+      $('#' + id)?.focus();
+      return toast(msg);
+    }
+  }
+  try {
+    await begin(await API('register', {
+      body: {
+        nama: v('rn').trim(),
+        jk: v('rj').trim(),
+        telp: v('rt').trim(),
+        wilayah: v('rw').trim(),
+        sabuk: v('rs').trim(),
+        noAnggota: v('ro').trim(),
+        password: v('rp')
+      }
+    }));
+  } catch (e) { toast(e.message); }
+}
+async function daftarPelatih() { try { await begin(await API('register', { body: { role: 'pelatih', nama: v('rpn'), password: v('rpp') } })); } catch (e) { toast(e.message); } }
 
 (async () => {
   try { PUB = await API('public'); S.cfg = { main: { site: PUB.site } }; } catch (e) {}
