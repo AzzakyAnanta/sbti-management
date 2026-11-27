@@ -155,7 +155,7 @@ function saveMurid(id, d, { allowPw = true } = {}) {
   if (!SABUK_IDS.includes(sabuk)) throw bad('Sabuk tidak valid');
   const jk = d.jk === 'Perempuan' ? 'Perempuan' : 'Laki-laki';
   const tgl = dateOk.test(d.tglGabung || '') ? d.tglGabung : (ex?.tgl_gabung || today());
-  const pass = allowPw && typeof d.password === 'string' && d.password.length >= 4 ? hashPw(d.password) : (ex?.pass_hash ?? null);
+  const pass = allowPw && typeof d.password === 'string' && d.password.length >= 1 ? hashPw(d.password) : (ex?.pass_hash ?? null);
   const no = str(d.noAnggota, 30) || ex?.no_anggota || nextNoAnggota();
   const aktif = d.aktif === false ? 0 : 1;
   const foto = typeof d.foto === 'string' && d.foto.length <= 400_000 ? d.foto : (ex?.foto || '');
@@ -316,11 +316,16 @@ const ROUTES = {
     guard(req);
     const fail = msg => { failed(req); throw new HttpError(401, msg); };
     if (b.role === 'pelatih') {
-      const nama = str(b.nama, 100), kode = kvGet('kode') || DEFAULT_KODE_PELATIH;
+      const nama = str(b.nama, 100), pw = String(b.password ?? b.kode ?? ''), kode = kvGet('kode') || DEFAULT_KODE_PELATIH;
       if (!nama) throw bad('Nama wajib diisi');
-      if (!safeEq(str(b.kode, 64), kode)) fail('Kode akses pelatih salah');
-      let s = get('SELECT id FROM staff WHERE lower(nama)=lower(?)', nama);
-      if (!s) { s = { id: 'p' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex') }; run('INSERT INTO staff(id,nama) VALUES(?,?)', s.id, nama); }
+      if (!pw) throw bad('Kata sandi wajib diisi');
+      let s = get('SELECT id,pass_hash FROM staff WHERE lower(nama)=lower(?)', nama);
+      if (s?.pass_hash) {
+        if (!checkPw(pw, s.pass_hash)) fail('Nama atau kata sandi pelatih salah');
+      } else {
+        if (!safeEq(str(pw, 64), kode)) fail('Nama belum terdaftar atau kata sandi salah');
+        if (!s) { s = { id: 'p' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex') }; run('INSERT INTO staff(id,nama) VALUES(?,?)', s.id, nama); }
+      }
       return sessionOut('pelatih', s.id);
     }
     if (b.role === 'murid') {
@@ -336,10 +341,27 @@ const ROUTES = {
 
   'POST /api/register'(req, a, b) {
     guard(req);
-    const nama = str(b.nama, 100), pw = String(b.password || ''), wilayahNama = str(b.wilayah, 100);
+    if (b.role === 'pelatih') {
+      const nama = str(b.nama, 100), pw = String(b.password || '');
+      if (!nama) throw bad('Nama wajib diisi');
+      if (!pw) throw bad('Kata sandi wajib diisi');
+      const ex = get('SELECT id FROM staff WHERE lower(nama)=lower(?)', nama);
+      if (ex) throw new HttpError(409, 'Nama pelatih sudah terdaftar, silakan masuk');
+      const id = 'p' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex');
+      run('INSERT INTO staff(id,nama,pass_hash) VALUES(?,?,?)', id, nama, hashPw(pw));
+      return sessionOut('pelatih', id);
+    }
+    const nama = str(b.nama, 100), pw = String(b.password || ''), wilayahNama = str(b.wilayah, 100), noAnggota = str(b.noAnggota, 30), telp = str(b.telp, 30), jk = str(b.jk, 20), sabuk = str(b.sabuk, 30);
     if (!nama) throw bad('Nama wajib diisi');
+    if (!jk) throw bad('Jenis kelamin wajib diisi');
+    if (!telp) throw bad('Nomor telepon wajib diisi');
     if (!wilayahNama) throw bad('Nama wilayah wajib diisi');
-    if (pw.length < 4) throw bad('Kata sandi minimal 4 karakter');
+    if (!sabuk) throw bad('Tingkatan sabuk wajib diisi');
+    if (!noAnggota) throw bad('Nomor anggota wajib diisi');
+    if (!pw) throw bad('Kata sandi wajib diisi');
+    if (get('SELECT 1 AS x FROM murid WHERE lower(no_anggota)=lower(?)', noAnggota)) {
+      throw new HttpError(409, 'Nomor anggota sudah dipakai anggota lain');
+    }
     const id = 'm' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex');
     tx(() => {
       let w = get('SELECT id FROM wilayah WHERE lower(nama)=lower(?)', wilayahNama);
@@ -347,7 +369,7 @@ const ROUTES = {
         const wid = 'w' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex');
         run('INSERT INTO wilayah(id,nama) VALUES(?,?)', wid, wilayahNama);
       }
-      saveMurid(id, { nama, jk: b.jk, telp: b.telp, sabuk: b.sabuk || 'putih', password: pw });
+      saveMurid(id, { nama, noAnggota, jk, telp, sabuk, password: pw });
     });
     return sessionOut('murid', id);
   },
