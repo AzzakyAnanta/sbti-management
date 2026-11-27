@@ -399,18 +399,18 @@ function rptHTML(u, p) {
   const pelatihSesi = Object.values(S.sesi || {}).find(s => ym(s.tgl) === p && (!s.unit || s.unit === m.unit) && s.pelatih)?.pelatih;
   const namaPelatih = pelatihSesi || Object.values(S.staff || {})[0]?.nama || '-';
   const fotoBox = m.foto
-    ? `<img src="${m.foto}" alt="Foto ${E(m.nama)}" style="width:105px;height:138px;object-fit:cover;border:1.5px solid #cbd5e1;border-radius:6px;display:block">`
-    : `<div style="width:105px;height:138px;border:1.5px dashed #94a3b8;border-radius:6px;display:flex;align-items:center;justify-content:center;text-align:center;color:#64748b;font-size:11.5px;padding:6px;background:#f8fafc">Pas Foto<br>3x4</div>`;
+    ? `<img src="${m.foto}" alt="Foto ${E(m.nama)}" style="width:112px;height:148px;object-fit:cover;border:1.5px solid #cbd5e1;border-radius:6px;display:block">`
+    : `<div style="width:112px;height:148px;border:1.5px dashed #94a3b8;border-radius:6px;display:flex;align-items:center;justify-content:center;text-align:center;color:#64748b;font-size:11.5px;padding:6px;background:#f8fafc">Pas Foto<br>3x4</div>`;
   return `<div class="rpt"><img class="lg" src="${site().logo}"><h2>${E(site().nama)}</h2><p class="m">Raport Penilaian Bulanan · Periode ${fm(p)}</p>
-    <div style="display:flex;gap:16px;align-items:flex-start;margin-bottom:14px">
-      <table style="flex:1;margin-bottom:0">
+    <div style="display:flex;gap:36px;align-items:flex-start;justify-content:space-between;max-width:760px;margin:0 auto 18px">
+      <table style="flex:1;max-width:560px;margin-bottom:0">
         <tr><td width="34%">Nama</td><td><b>${E(m.nama)}</b></td></tr>
         <tr><td>No. Anggota</td><td>${E(m.noAnggota)}</td></tr>
         <tr><td>Sabuk</td><td>${E(sabukNama(m.sabuk))}</td></tr>
         <tr><td>Unit Latihan</td><td>${E(unitLabel(m.unit))}</td></tr>
         <tr><td>Nama Pelatih</td><td>${E(namaPelatih)}</td></tr>
       </table>
-      <div style="flex-shrink:0">${fotoBox}</div>
+      <div style="flex-shrink:0;padding-top:4px">${fotoBox}</div>
     </div>
     <table><tr><th>Total latihan</th><th>Hadir</th><th>Izin</th><th>Sakit</th><th>Alpha</th><th>Kehadiran</th></tr><tr><td>${r.tot}</td><td>${r.c.hadir}</td><td>${r.c.izin}</td><td>${r.c.sakit}</td><td>${r.c.alpha}</td><td>${f(r.pct)}%</td></tr></table>
     <table><tr><th>Materi</th><th>Jumlah penilaian</th><th>Rata-rata</th></tr>${r.mats.map(x => `<tr><td>${E(x.m)}</td><td>${x.n}</td><td>${f(x.r)}</td></tr>`).join('') || '<tr><td colspan="3">Belum ada nilai pada periode ini</td></tr>'}<tr><th colspan="2">Rata-rata keseluruhan</th><th>${f(r.all)}</th></tr></table>
