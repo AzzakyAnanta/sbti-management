@@ -108,7 +108,7 @@ function buildS(a) {
   const mrows = staff ? all('SELECT * FROM murid ORDER BY nama COLLATE NOCASE') : all('SELECT * FROM murid WHERE id=?', a.uid);
   for (const r of mrows) S.murid[r.id] = {
     nama: r.nama, noAnggota: r.no_anggota, jk: r.jk, telp: r.telp, tglGabung: r.tgl_gabung,
-    aktif: !!r.aktif, sabuk: r.sabuk, unit: r.unit_id || '', riwayatSabuk: rw[r.id] || [],
+    aktif: !!r.aktif, sabuk: r.sabuk, unit: r.unit_id || '', foto: r.foto || '', riwayatSabuk: rw[r.id] || [],
   };
 
   for (const r of all('SELECT * FROM sesi ORDER BY tgl DESC,id DESC'))
@@ -158,15 +158,27 @@ function saveMurid(id, d, { allowPw = true } = {}) {
   const pass = allowPw && typeof d.password === 'string' && d.password.length >= 4 ? hashPw(d.password) : (ex?.pass_hash ?? null);
   const no = str(d.noAnggota, 30) || ex?.no_anggota || nextNoAnggota();
   const aktif = d.aktif === false ? 0 : 1;
-  run(`INSERT INTO murid(id,no_anggota,nama,jk,telp,tgl_gabung,aktif,sabuk,unit_id,pass_hash) VALUES(?,?,?,?,?,?,?,?,?,?)
+  const foto = typeof d.foto === 'string' && d.foto.length <= 400_000 ? d.foto : (ex?.foto || '');
+  run(`INSERT INTO murid(id,no_anggota,nama,jk,telp,tgl_gabung,aktif,sabuk,unit_id,foto,pass_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(id) DO UPDATE SET no_anggota=excluded.no_anggota,nama=excluded.nama,jk=excluded.jk,telp=excluded.telp,
-       tgl_gabung=excluded.tgl_gabung,aktif=excluded.aktif,sabuk=excluded.sabuk,unit_id=excluded.unit_id,pass_hash=excluded.pass_hash`,
-    id, no, nama, jk, str(d.telp, 30), tgl, aktif, sabuk, unit, pass);
+       tgl_gabung=excluded.tgl_gabung,aktif=excluded.aktif,sabuk=excluded.sabuk,unit_id=excluded.unit_id,foto=excluded.foto,pass_hash=excluded.pass_hash`,
+    id, no, nama, jk, str(d.telp, 30), tgl, aktif, sabuk, unit, foto, pass);
   if (!ex || ex.sabuk !== sabuk) run('INSERT INTO sabuk_riwayat(murid_id,sabuk,tgl) VALUES(?,?,?)', id, sabuk, today());
 }
 
 const SET = {
-  murid(a, key, d) { need(a, 'pelatih'); saveMurid(key, d); },
+  murid(a, key, d) {
+    if (a.role === 'murid') {
+      if (key !== a.uid) throw forbidden();
+      const ex = get('SELECT * FROM murid WHERE id=?', key);
+      if (!ex) throw bad('Anggota tidak ditemukan');
+      const foto = typeof d.foto === 'string' && d.foto.length <= 400_000 ? d.foto : '';
+      run('UPDATE murid SET foto=? WHERE id=?', foto, key);
+      return;
+    }
+    need(a, 'pelatih');
+    saveMurid(key, d);
+  },
   staff(a, key, d) {
     need(a, 'pelatih');
     const nama = str(d.nama, 100);
