@@ -1,6 +1,6 @@
-import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
 const FILE = process.env.DB_FILE || path.join(process.cwd(), 'data', 'sbti.db');
 fs.mkdirSync(path.dirname(FILE), { recursive: true });
@@ -53,35 +53,43 @@ CREATE TABLE IF NOT EXISTS unit (
 );
 
 CREATE TABLE IF NOT EXISTS staff (
-  id TEXT PRIMARY KEY, nama TEXT NOT NULL,
+  id TEXT PRIMARY KEY, nama TEXT NOT NULL UNIQUE COLLATE NOCASE,
   wilayah_id TEXT REFERENCES wilayah(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS murid (
-  id TEXT PRIMARY KEY, no_anggota TEXT NOT NULL DEFAULT '', nama TEXT NOT NULL,
-  jk TEXT NOT NULL DEFAULT 'Laki-laki', telp TEXT NOT NULL DEFAULT '',
-  tgl_gabung TEXT NOT NULL DEFAULT '', aktif INTEGER NOT NULL DEFAULT 1,
-  sabuk TEXT NOT NULL DEFAULT 'putih',
-  unit_id TEXT REFERENCES unit(id) ON DELETE SET NULL,
-  pass_hash TEXT
+  id         TEXT PRIMARY KEY,
+  no_anggota TEXT NOT NULL UNIQUE,
+  nama       TEXT NOT NULL COLLATE NOCASE,
+  jk         TEXT NOT NULL DEFAULT 'Laki-laki',
+  telp       TEXT NOT NULL DEFAULT '',
+  tgl_gabung TEXT NOT NULL DEFAULT '',
+  aktif      INTEGER NOT NULL DEFAULT 1,
+  sabuk      TEXT NOT NULL DEFAULT 'putih',
+  unit_id    TEXT REFERENCES unit(id) ON DELETE SET NULL,
+  foto       TEXT NOT NULL DEFAULT '',
+  pass_hash  TEXT
 );
-CREATE UNIQUE INDEX IF NOT EXISTS murid_nama_uq ON murid(lower(nama));
 
 CREATE TABLE IF NOT EXISTS sabuk_riwayat (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id       INTEGER PRIMARY KEY AUTOINCREMENT,
   murid_id TEXT NOT NULL REFERENCES murid(id) ON DELETE CASCADE,
-  sabuk TEXT NOT NULL, tgl TEXT NOT NULL
+  sabuk    TEXT NOT NULL,
+  tgl      TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS sesi (
-  id TEXT PRIMARY KEY, tgl TEXT NOT NULL, materi TEXT NOT NULL, pelatih TEXT NOT NULL DEFAULT '',
+  id      TEXT PRIMARY KEY,
+  tgl     TEXT NOT NULL,
+  materi  TEXT NOT NULL,
+  pelatih TEXT NOT NULL DEFAULT '',
   unit_id TEXT REFERENCES unit(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS absen (
-  sesi_id TEXT NOT NULL REFERENCES sesi(id) ON DELETE CASCADE,
-  murid_id TEXT NOT NULL REFERENCES murid(id) ON DELETE CASCADE,
-  status TEXT NOT NULL CHECK (status IN ('hadir','izin','sakit','alpha')),
+  sesi_id    TEXT NOT NULL REFERENCES sesi(id) ON DELETE CASCADE,
+  murid_id   TEXT NOT NULL REFERENCES murid(id) ON DELETE CASCADE,
+  status     TEXT NOT NULL CHECK (status IN ('hadir','izin','sakit','alpha')),
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (sesi_id, murid_id)
 );
@@ -92,20 +100,22 @@ CREATE TABLE IF NOT EXISTS materi (
 );
 
 CREATE TABLE IF NOT EXISTS nilai (
-  sesi_id TEXT NOT NULL REFERENCES sesi(id) ON DELETE CASCADE,
-  murid_id TEXT NOT NULL REFERENCES murid(id) ON DELETE CASCADE,
-  catatan TEXT NOT NULL DEFAULT '', oleh TEXT NOT NULL DEFAULT '',
+  sesi_id    TEXT NOT NULL REFERENCES sesi(id) ON DELETE CASCADE,
+  murid_id   TEXT NOT NULL REFERENCES murid(id) ON DELETE CASCADE,
+  catatan    TEXT NOT NULL DEFAULT '', oleh TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (sesi_id, murid_id)
 );
 CREATE TABLE IF NOT EXISTS nilai_skor (
-  sesi_id TEXT NOT NULL, murid_id TEXT NOT NULL,
-  materi_id TEXT NOT NULL REFERENCES materi(id) ON DELETE CASCADE,
-  skor REAL NOT NULL,
+  sesi_id    TEXT NOT NULL, murid_id TEXT NOT NULL,
+  materi_id  TEXT NOT NULL REFERENCES materi(id) ON DELETE CASCADE,
+  skor       REAL NOT NULL,
   PRIMARY KEY (sesi_id, murid_id, materi_id),
   FOREIGN KEY (sesi_id, murid_id) REFERENCES nilai(sesi_id, murid_id) ON DELETE CASCADE
 );
 `);
+
+try { db.exec("ALTER TABLE murid ADD COLUMN foto TEXT NOT NULL DEFAULT ''"); } catch {}
 
 // Seed materi awal (hanya kalau tabel masih kosong)
 const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
@@ -120,6 +130,6 @@ if (!get('SELECT 1 AS x FROM materi LIMIT 1')) {
   tx(() => {
     for (const [kat, items] of SEED)
       for (const n of items)
-        run('INSERT INTO materi(id,kategori,nama,urut) VALUES(?,?,?,?)', `${slug(kat)}_${slug(n)}`, kat, n, ++urut);
+        run('INSERT INTO materi(id,kategori,nama,urut) VALUES(?,?,?,?)', slug(kat + '_' + n), kat, n, ++urut);
   });
 }
