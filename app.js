@@ -326,6 +326,8 @@ function mForm(id) {
     <input id="fg" type="date" value="${m.tglGabung || today()}">
     <input id="ft" placeholder="Nomor telepon" value="${E(m.telp)}">
     <input id="fp" type="password" placeholder="${id ? 'Ganti kata sandi (opsional)' : 'Kata sandi login murid'}">
+    <label class="m">Pas Foto Raport (3x4, opsional)</label>
+    <input id="ff" type="file" accept="image/*">
     <div class="btns"><button class="b p" onclick="mSave('${id}')">Simpan</button><button class="b" onclick="modal('')">Batal</button></div>`);
 }
 
@@ -333,6 +335,8 @@ async function mSave(id) {
   const n = v('fn').trim(); if (!n) return toast('Nama wajib diisi');
   const payload = { ...(S.murid[id] || { aktif: true }), nama: n, noAnggota: v('fo'), sabuk: v('fs'), unit: v('fu'), jk: v('fj'), tglGabung: v('fg'), telp: v('ft') };
   if (v('fp')) payload.password = v('fp');
+  const fl = $('#ff')?.files?.[0];
+  if (fl) payload.foto = await shrink(fl, 240, 320);
   await save('murid/' + (id || 'm' + Date.now()), payload);
   modal('');
 }
@@ -392,8 +396,22 @@ async function nSave(u) {
 
 function rptHTML(u, p) {
   const m = S.murid[u], r = rap(u, p);
+  const pelatihSesi = Object.values(S.sesi || {}).find(s => ym(s.tgl) === p && (!s.unit || s.unit === m.unit) && s.pelatih)?.pelatih;
+  const namaPelatih = pelatihSesi || Object.values(S.staff || {})[0]?.nama || '-';
+  const fotoBox = m.foto
+    ? `<img src="${m.foto}" alt="Foto ${E(m.nama)}" style="width:105px;height:138px;object-fit:cover;border:1.5px solid #cbd5e1;border-radius:6px;display:block">`
+    : `<div style="width:105px;height:138px;border:1.5px dashed #94a3b8;border-radius:6px;display:flex;align-items:center;justify-content:center;text-align:center;color:#64748b;font-size:11.5px;padding:6px;background:#f8fafc">Pas Foto<br>3x4</div>`;
   return `<div class="rpt"><img class="lg" src="${site().logo}"><h2>${E(site().nama)}</h2><p class="m">Raport Penilaian Bulanan · Periode ${fm(p)}</p>
-    <table><tr><td width="30%">Nama</td><td><b>${E(m.nama)}</b></td></tr><tr><td>No. Anggota</td><td>${E(m.noAnggota)}</td></tr><tr><td>Sabuk</td><td>${E(sabukNama(m.sabuk))}</td></tr><tr><td>Unit Latihan</td><td>${E(unitLabel(m.unit))}</td></tr></table>
+    <div style="display:flex;gap:16px;align-items:flex-start;margin-bottom:14px">
+      <table style="flex:1;margin-bottom:0">
+        <tr><td width="34%">Nama</td><td><b>${E(m.nama)}</b></td></tr>
+        <tr><td>No. Anggota</td><td>${E(m.noAnggota)}</td></tr>
+        <tr><td>Sabuk</td><td>${E(sabukNama(m.sabuk))}</td></tr>
+        <tr><td>Unit Latihan</td><td>${E(unitLabel(m.unit))}</td></tr>
+        <tr><td>Nama Pelatih</td><td>${E(namaPelatih)}</td></tr>
+      </table>
+      <div style="flex-shrink:0">${fotoBox}</div>
+    </div>
     <table><tr><th>Total latihan</th><th>Hadir</th><th>Izin</th><th>Sakit</th><th>Alpha</th><th>Kehadiran</th></tr><tr><td>${r.tot}</td><td>${r.c.hadir}</td><td>${r.c.izin}</td><td>${r.c.sakit}</td><td>${r.c.alpha}</td><td>${f(r.pct)}%</td></tr></table>
     <table><tr><th>Materi</th><th>Jumlah penilaian</th><th>Rata-rata</th></tr>${r.mats.map(x => `<tr><td>${E(x.m)}</td><td>${x.n}</td><td>${f(x.r)}</td></tr>`).join('') || '<tr><td colspan="3">Belum ada nilai pada periode ini</td></tr>'}<tr><th colspan="2">Rata-rata keseluruhan</th><th>${f(r.all)}</th></tr></table>
     <b>Catatan pelatih</b>${r.cat.length ? r.cat.map(c => `<p style="margin:4px 0">${fd(c[0])} · ${E(c[1])}: ${E(c[2])}</p>`).join('') : '<p>-</p>'}
@@ -416,10 +434,17 @@ function vRaport() {
   return `<h2>Raport Bulanan</h2>${staff ? filterBarHTML() : ''}
   <div class="row np"><input type="month" value="${R.p}" onchange="R.p=this.value||R.p;render()">
     ${staff ? `<select onchange="R.mode=this.value;render()"><option value="ind" ${R.mode === 'ind' ? 'selected' : ''}>Raport individu</option><option value="all" ${R.mode === 'all' ? 'selected' : ''}>Rekap seluruh anggota</option></select>
-      ${R.mode === 'ind' ? `<select onchange="R.u=this.value;render()">${ms.map(m => `<option value="${m.id}" ${m.id === R.u ? 'selected' : ''}>${E(m.nama)}</option>`).join('')}</select>` : ''}` : ''}
+      ${R.mode === 'ind' ? `<select onchange="R.u=this.value;render()">${ms.map(m => `<option value="${m.id}" ${m.id === R.u ? 'selected' : ''}>${E(m.nama)}</option>`).join('')}</select>` : ''}` : `<label class="b" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">📷 Upload Foto Raport<input type="file" accept="image/*" style="display:none" onchange="uploadMyFoto(this.files[0])"></label>`}
     <button class="b p" onclick="window.print()">Cetak Raport</button>
     <button class="b" onclick="toast('Pilih Simpan sebagai PDF pada dialog cetak');window.print()">Download PDF</button>
   </div>${R.mode === 'all' && staff ? rekapHTML(R.p) : R.u ? rptHTML(R.u, R.p) : '<div class="card">Belum ada anggota.</div>'}`;
+}
+
+async function uploadMyFoto(fl) {
+  if (!fl) return;
+  const foto = await shrink(fl, 240, 320);
+  await save('murid/' + uid, { foto });
+  toast('Foto raport diperbarui');
 }
 
 function vAbsen() {
@@ -457,7 +482,7 @@ function vWeb() {
   </div>`;
 }
 
-const shrink = fl => new Promise(r => { const i = new Image(); i.onload = () => { const c = document.createElement('canvas'); c.width = c.height = 256; c.getContext('2d').drawImage(i, 0, 0, 256, 256); r(c.toDataURL('image/jpeg', .85)); }; i.src = URL.createObjectURL(fl); });
+const shrink = (fl, w = 256, h = 256) => new Promise(r => { const i = new Image(); i.onload = () => { const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(i, 0, 0, w, h); r(c.toDataURL('image/jpeg', .85)); }; i.src = URL.createObjectURL(fl); });
 async function saveWeb() { const o = { nama: v('wn').trim(), tag: v('wt').trim(), sambutan: v('ws').trim(), logo: S.cfg.main?.site?.logo || '' }; const fl = $('#wl').files[0]; if (fl) o.logo = await shrink(fl); await save('cfg/main', { ...(S.cfg.main || {}), site: o }); toast('Tersimpan'); }
 
 let TOKEN = localStorage.getItem('sbti_token') || '', last = '';
