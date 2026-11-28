@@ -337,6 +337,22 @@ const ROUTES = {
       if (!m.aktif) throw new HttpError(403, 'Akun Anda dinonaktifkan, hubungi pelatih');
       return sessionOut('murid', m.id);
     }
+    throw bad('Peran login tidak valid');
+  },
+
+  'POST /api/register'(req, a, b) {
+    guard(req);
+    if (b.role === 'pelatih') {
+      const nama = str(b.nama, 100), pw = String(b.password || '');
+      if (!nama) throw bad('Nama lengkap pelatih wajib diisi');
+      if (!pw) throw bad('Kata sandi wajib diisi');
+      if (get('SELECT 1 AS x FROM staff WHERE lower(nama)=lower(?)', nama)) {
+        throw new HttpError(409, 'Nama pelatih sudah terdaftar, silakan langsung Masuk');
+      }
+      const id = 'p' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex');
+      run('INSERT INTO staff(id,nama,pass_hash) VALUES(?,?,?)', id, nama, hashPw(pw));
+      return sessionOut('pelatih', id);
+    }
     const nama = str(b.nama, 100), pw = String(b.password || ''), wilayahNama = str(b.wilayah, 100), cabangNama = str(b.cabang, 100), unitNama = str(b.unit, 100), noAnggota = str(b.noAnggota, 30), telp = str(b.telp, 30), jk = str(b.jk, 20), sabuk = str(b.sabuk, 30);
     if (!nama) throw bad('Nama wajib diisi');
     if (!jk) throw bad('Jenis kelamin wajib diisi');
