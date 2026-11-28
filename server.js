@@ -36,7 +36,6 @@ function checkPw(pw, stored) {
   const a = Buffer.from(h, 'hex'), b = crypto.scryptSync(pw, salt, 64);
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
-const safeEq = (a, b) => crypto.timingSafeEqual(Buffer.from(sha(String(a).toLowerCase().replace(/\s+/g, ''))), Buffer.from(sha(String(b).toLowerCase().replace(/\s+/g, ''))));
 
 function newSession(role, uid) {
   const t = crypto.randomBytes(32).toString('hex');
@@ -83,6 +82,8 @@ const kvSet = (k, v) => run('INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO U
 const kvDel = k => run('DELETE FROM kv WHERE k=?', k);
 
 try { db.exec('ALTER TABLE staff ADD COLUMN pass_hash TEXT'); } catch {}
+try { db.exec("ALTER TABLE staff ADD COLUMN telp TEXT NOT NULL DEFAULT ''"); } catch {}
+try { db.exec("ALTER TABLE staff ADD COLUMN foto TEXT NOT NULL DEFAULT ''"); } catch {}
 if (!kvGet('kode')) kvSet('kode', DEFAULT_KODE_PELATIH);
 
 function struktur() {
@@ -101,7 +102,7 @@ function buildS(a) {
   };
 
   for (const r of all('SELECT * FROM staff ORDER BY nama COLLATE NOCASE'))
-    S.staff[r.id] = { nama: r.nama, wilayah: r.wilayah_id || '' };
+    S.staff[r.id] = { nama: r.nama, wilayah: r.wilayah_id || '', telp: r.telp || '', foto: r.foto || '' };
 
   const rw = {};
   for (const r of all('SELECT murid_id,sabuk,tgl FROM sabuk_riwayat ORDER BY id'))
@@ -172,348 +173,381 @@ const SET = {
     if (a.role === 'murid') {
       if (key !== a.uid) throw forbidden();
       const ex = get('SELECT * FROM murid WHERE id=?', key);
-      if (!ex) throw bad('Anggota tidak ditemukan');
-      const foto = typeof d.foto === 'string' && d.foto.length <= 400_000 ? d.foto : '';
-      run('UPDATE murid SET foto=? WHERE id=?', foto, key);
+      if (!ex) throw bad('Akun tidak ditemukan');
+      const nama = d.nama !== undefined ? str(d.nama, 100) : ex.nama;
+      if (!nama) throw bad('Nama wajib diisi');
+      const jk = d.jk !== undefined ? (d.jk === 'Perempuan' ? 'Perempuan' : 'Laki-laki') : ex.jk;
+      const telp = d.telp !== undefined ? str(d.telp, 30) : ex.telp;
+      const foto = typeof d.foto === 'string' && d.foto.length <= 400_000 ? d.foto : (ex.foto || '');
+      const pass = typeof d.password === 'string' && d.password.length >= 1 ? hashPw(d.password) : ex.pass_hash;
+      run('UPDATE murid SET nama=?,jk=?,telp=?,foto=?,pass_hash=? WHERE id=?', nama, jk, telp, foto, pass, key);
       return;
     }
     need(a, 'pelatih');
     saveMurid(key, d);
   },
-  staff(a, key, d) {
-    need(a, 'pelatih');
-    const nama = str(d.nama, 100);
-    if (!nama) throw bad('Nama wajib diisi');
-    const w = str(d.wilayah, 64) || null;
-    run(`INSERT INTO staff(id,nama,wilayah_id) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET nama=excluded.nama,wilayah_id=excluded.wilayah_id`, key, nama, w);
-  },
-  sesi(a, key, d) {
-    need(a, 'pelatih');
-    const ex = get('SELECT * FROM sesi WHERE id=?', key);
-    const tgl = str(d.tgl, 10), materi = str(d.materi, 200);
-    if (!dateOk.test(tgl) || !materi) throw bad('Tanggal dan materi wajib diisi');
-    const unit = d.unit === undefined ? (ex?.unit_id ?? null) : (str(d.unit, 64) || null);
-    if (unit && !refs('unit', unit)) throw bad('Unit latihan tidak ditemukan');
-    const pelatih = str(d.pelatih, 100) || ex?.pelatih || '';
-    run(`INSERT INTO sesi(id,tgl,materi,pelatih,unit_id) VALUES(?,?,?,?,?)
-         ON CONFLICT(id) DO UPDATE SET tgl=excluded.tgl,materi=excluded.materi,pelatih=excluded.pelatih,unit_id=excluded.unit_id`,
-      key, tgl, materi, pelatih, unit);
-  },
-  absen(a, key, d) {
-    need(a);
-    const i = key.indexOf('_');
-    if (i < 1) throw bad('Path absen tidak valid');
-    const sid = key.slice(0, i), uid = key.slice(i + 1);
-    const status = String(d.status || '');
-    if (a.role === 'murid') {
-      if (uid !== a.uid) throw forbidden();
-      if (!['hadir', 'izin', 'sakit'].includes(status)) throw bad('Status absen tidak valid');
-    } else if (!['hadir', 'izin', 'sakit', 'alpha'].includes(status)) throw bad('Status absen tidak valid');
-    if (!refs('sesi', sid) || !refs('murid', uid)) throw bad('Sesi atau anggota tidak ditemukan');
-    run(`INSERT INTO absen(sesi_id,murid_id,status,updated_at) VALUES(?,?,?,CURRENT_TIMESTAMP)
-         ON CONFLICT(sesi_id,murid_id) DO UPDATE SET status=excluded.status,updated_at=CURRENT_TIMESTAMP`, sid, uid, status);
-  },
-  nilai(a, key, d) {
-    need(a, 'pelatih');
-    const i = key.indexOf('_');
-    if (i < 1) throw bad('Path nilai tidak valid');
-    const sid = key.slice(0, i), uid = key.slice(i + 1);
-    if (!refs('sesi', sid) || !refs('murid', uid)) throw bad('Sesi atau anggota tidak ditemukan');
-    const valid = new Set(all('SELECT id FROM materi').map(r => r.id));
-    run(`INSERT INTO nilai(sesi_id,murid_id,catatan,oleh,updated_at) VALUES(?,?,?,?,CURRENT_TIMESTAMP)
-         ON CONFLICT(sesi_id,murid_id) DO UPDATE SET catatan=excluded.catatan,oleh=excluded.oleh,updated_at=CURRENT_TIMESTAMP`,
-      sid, uid, str(d.catatan, 1000), get('SELECT nama FROM staff WHERE id=?', a.uid)?.nama || 'Pelatih');
-    run('DELETE FROM nilai_skor WHERE sesi_id=? AND murid_id=?', sid, uid);
-    for (const [mid, val] of Object.entries(d.skor || {})) {
-      if (!valid.has(mid) || val === '' || val === null) continue;
-      const x = Number(val);
-      if (!Number.isFinite(x)) continue;
-      run('INSERT INTO nilai_skor(sesi_id,murid_id,materi_id,skor) VALUES(?,?,?,?)', sid, uid, mid, Math.min(100, Math.max(0, x)));
-    }
-  },
+
   wilayah(a, key, d) {
     need(a, 'pelatih');
-    const nama = str(d.nama, 100);
-    if (!nama) throw bad('Nama wilayah wajib diisi');
+    const nama = str(d.nama, 100); if (!nama) throw bad('Nama wilayah wajib diisi');
     run('INSERT INTO wilayah(id,nama) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET nama=excluded.nama', key, nama);
   },
+
   cabang(a, key, d) {
     need(a, 'pelatih');
-    const ex = get('SELECT * FROM cabang WHERE id=?', key);
-    const nama = str(d.nama, 100), w = str(d.wilayah, 64) || ex?.wilayah_id;
-    if (!nama || !w || !refs('wilayah', w)) throw bad('Wilayah atau nama cabang tidak valid');
+    const nama = str(d.nama, 100), w = str(d.wilayah, 64);
+    if (!nama || !w) throw bad('Nama cabang dan wilayah wajib diisi');
+    if (!refs('wilayah', w)) throw bad('Wilayah tidak ditemukan');
     run('INSERT INTO cabang(id,nama,wilayah_id) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET nama=excluded.nama,wilayah_id=excluded.wilayah_id', key, nama, w);
   },
+
   unit(a, key, d) {
     need(a, 'pelatih');
-    const ex = get('SELECT * FROM unit WHERE id=?', key);
-    const nama = str(d.nama, 100), c = str(d.cabang, 64) || ex?.cabang_id;
-    if (!nama || !c || !refs('cabang', c)) throw bad('Cabang atau nama unit tidak valid');
-    run(`INSERT INTO unit(id,nama,lokasi,cabang_id) VALUES(?,?,?,?)
-         ON CONFLICT(id) DO UPDATE SET nama=excluded.nama,lokasi=excluded.lokasi,cabang_id=excluded.cabang_id`,
-      key, nama, str(d.lokasi ?? ex?.lokasi, 200), c);
+    const nama = str(d.nama, 100), c = str(d.cabang, 64);
+    if (!nama || !c) throw bad('Nama unit dan cabang wajib diisi');
+    if (!refs('cabang', c)) throw bad('Cabang tidak ditemukan');
+    run('INSERT INTO unit(id,nama,lokasi,cabang_id) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET nama=excluded.nama,lokasi=excluded.lokasi,cabang_id=excluded.cabang_id',
+      key, nama, str(d.lokasi, 200), c);
   },
+
+  sesi(a, key, d) {
+    need(a, 'pelatih');
+    const materi = str(d.materi, 200), tgl = str(d.tgl, 20);
+    if (!materi || !dateOk.test(tgl)) throw bad('Tanggal dan materi latihan wajib valid');
+    const unit = str(d.unit, 64) || null;
+    if (unit && !refs('unit', unit)) throw bad('Unit latihan tidak ditemukan');
+    const pelaku = str(d.pelatih, 100) || get('SELECT nama FROM staff WHERE id=?', a.uid)?.nama || '';
+    run('INSERT INTO sesi(id,tgl,materi,pelatih,unit_id) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET tgl=excluded.tgl,materi=excluded.materi,pelatih=excluded.pelatih,unit_id=excluded.unit_id',
+      key, tgl, materi, pelaku, unit);
+  },
+
+  absen(a, key, d) {
+    const i = key.indexOf('_'); if (i < 1) throw bad('Kunci absensi tidak valid');
+    const sesi = key.slice(0, i), uid = key.slice(i + 1);
+    const s = get('SELECT id,tgl FROM sesi WHERE id=?', sesi);
+    if (!s) throw bad('Sesi latihan tidak ditemukan');
+    if (!get('SELECT 1 AS x FROM murid WHERE id=?', uid)) throw bad('Anggota tidak ditemukan');
+
+    if (a.role === 'murid') {
+      if (uid !== a.uid) throw forbidden();
+      if (!['hadir', 'izin', 'sakit'].includes(d.status)) throw bad('Status absensi tidak valid');
+      if (s.tgl !== today()) throw bad('Absensi mandiri hanya dibuka pada hari latihan berlangsung');
+    } else {
+      need(a, 'pelatih');
+      if (!['hadir', 'izin', 'sakit', 'alpha'].includes(d.status)) throw bad('Status absensi tidak valid');
+    }
+    const waktu = new Date(Date.now() + TZ_OFFSET * 36e5).toISOString();
+    run(`INSERT INTO absen(sesi_id,murid_id,status,updated_at) VALUES(?,?,?,?)
+         ON CONFLICT(sesi_id,murid_id) DO UPDATE SET status=excluded.status,updated_at=excluded.updated_at`,
+      sesi, uid, d.status, waktu);
+  },
+
+  nilai(a, key, d) {
+    need(a, 'pelatih');
+    const i = key.indexOf('_'); if (i < 1) throw bad('Kunci nilai tidak valid');
+    const sesi = key.slice(0, i), uid = key.slice(i + 1);
+    if (!get('SELECT 1 AS x FROM sesi WHERE id=?', sesi) || !get('SELECT 1 AS x FROM murid WHERE id=?', uid))
+      throw bad('Sesi atau anggota tidak ditemukan');
+    const oleh = get('SELECT nama FROM staff WHERE id=?', a.uid)?.nama || 'Pelatih';
+    tx(() => {
+      run(`INSERT INTO nilai(sesi_id,murid_id,catatan,oleh,updated_at) VALUES(?,?,?,?,CURRENT_TIMESTAMP)
+           ON CONFLICT(sesi_id,murid_id) DO UPDATE SET catatan=excluded.catatan,oleh=excluded.oleh,updated_at=CURRENT_TIMESTAMP`,
+        sesi, uid, str(d.catatan, 1000), oleh);
+      run('DELETE FROM nilai_skor WHERE sesi_id=? AND murid_id=?', sesi, uid);
+      for (const [mid, raw] of Object.entries(d.skor || {})) {
+        if (!idOk.test(mid) || !refs('materi', mid)) continue;
+        const v = Number(raw);
+        if (!Number.isFinite(v) || v < 0 || v > 100) throw bad('Nilai harus angka 0–100');
+        run('INSERT INTO nilai_skor(sesi_id,murid_id,materi_id,skor) VALUES(?,?,?,?)', sesi, uid, mid, v);
+      }
+    });
+  },
+
+  materi(a, key, d) {
+    need(a, 'pelatih');
+    const nama = str(d.nama, 80), kat = str(d.kategori, 40) || 'Umum';
+    if (!nama) throw bad('Nama materi wajib diisi');
+    const max = get('SELECT COALESCE(MAX(urut),0) AS m FROM materi')?.m || 0;
+    run('INSERT INTO materi(id,kategori,nama,urut) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET kategori=excluded.kategori,nama=excluded.nama',
+      key, kat, nama, max + 1);
+  },
+
+  staff(a, key, d) {
+    need(a, 'pelatih');
+    const ex = get('SELECT * FROM staff WHERE id=?', key);
+    if (!ex) throw bad('Pelatih tidak ditemukan');
+    const nama = d.nama !== undefined ? str(d.nama, 100) : ex.nama;
+    if (!nama) throw bad('Nama pelatih wajib diisi');
+    const w = d.wilayah !== undefined ? (str(d.wilayah, 64) || null) : ex.wilayah_id;
+    if (w && !refs('wilayah', w)) throw bad('Wilayah tidak ditemukan');
+    const telp = d.telp !== undefined ? str(d.telp, 30) : (ex.telp || '');
+    const foto = typeof d.foto === 'string' && d.foto.length <= 400_000 ? d.foto : (ex.foto || '');
+    const pass = typeof d.password === 'string' && d.password.length >= 1 ? hashPw(d.password) : ex.pass_hash;
+    run('UPDATE staff SET nama=?,wilayah_id=?,telp=?,foto=?,pass_hash=? WHERE id=?', nama, w, telp, foto, pass, key);
+  },
+
   cfg(a, key, d) {
     need(a, 'pelatih');
-    if (key !== 'main') throw bad('Konfigurasi tidak dikenal');
-    if (d.site !== undefined) {
-      const s = d.site || {}, o = {};
-      for (const k of ['nama', 'tag', 'sambutan']) if (s[k]) o[k] = str(s[k], 300);
-      if (s.logo) {
-        if (typeof s.logo !== 'string' || s.logo.length > 400_000) throw bad('Logo terlalu besar');
-        o.logo = s.logo;
-      }
-      Object.keys(o).length ? kvSet('site', o) : kvDel('site');
+    if (key !== 'main' || typeof d !== 'object' || !d) throw bad('Konfigurasi tidak valid');
+    if (typeof d.kode === 'string' && d.kode.trim().length >= 3) kvSet('kode', d.kode.trim().slice(0, 64));
+    if (d.site && typeof d.site === 'object') {
+      const logo = typeof d.site.logo === 'string' && d.site.logo.length <= 400_000 ? d.site.logo : '';
+      kvSet('site', {
+        nama: str(d.site.nama, 80),
+        tag: str(d.site.tag, 120),
+        sambutan: str(d.site.sambutan, 300),
+        logo,
+      });
     }
-    if (d.kode !== undefined && str(d.kode, 64)) kvSet('kode', str(d.kode, 64));
   },
 };
 
-const DEL = {
-  murid(a, key) { need(a, 'pelatih'); run('DELETE FROM murid WHERE id=?', key); run('DELETE FROM sessions WHERE role=? AND uid=?', 'murid', key); },
-  staff(a, key) { need(a, 'pelatih'); run('DELETE FROM staff WHERE id=?', key); run('DELETE FROM sessions WHERE role=? AND uid=?', 'pelatih', key); },
-  sesi(a, key) { need(a, 'pelatih'); run('DELETE FROM sesi WHERE id=?', key); },
-  absen(a, key) {
-    need(a, 'pelatih');
-    const i = key.indexOf('_');
-    if (i > 0) run('DELETE FROM absen WHERE sesi_id=? AND murid_id=?', key.slice(0, i), key.slice(i + 1));
-  },
-  nilai(a, key) {
-    need(a, 'pelatih');
-    const i = key.indexOf('_');
-    if (i > 0) run('DELETE FROM nilai WHERE sesi_id=? AND murid_id=?', key.slice(0, i), key.slice(i + 1));
-  },
-  wilayah(a, key) { need(a, 'pelatih'); run('DELETE FROM wilayah WHERE id=?', key); },
-  cabang(a, key) { need(a, 'pelatih'); run('DELETE FROM cabang WHERE id=?', key); },
-  unit(a, key) { need(a, 'pelatih'); run('DELETE FROM unit WHERE id=?', key); },
-};
+const DEL_TABLE = { wilayah: 'wilayah', cabang: 'cabang', unit: 'unit', murid: 'murid', sesi: 'sesi', materi: 'materi', staff: 'staff' };
 
-function parsePath(p) {
-  const [col, key, ...rest] = String(p || '').split('/');
-  if (rest.length || !col || !key) throw bad('Path tidak valid');
-  if (col === 'absen' || col === 'nilai') {
-    const i = key.indexOf('_');
-    if (i < 1 || !idOk.test(key.slice(0, i)) || !idOk.test(key.slice(i + 1))) throw bad('Path tidak valid');
-  } else if (!idOk.test(key)) throw bad('ID tidak valid');
-  return [col, key];
+/* ---------- routes ---------- */
+function sessionOut(role, uid) {
+  const token = newSession(role, uid);
+  return { token, role, uid };
 }
-
-function dbError(e) {
-  if (e instanceof HttpError) return e;
-  const m = String(e?.message || '');
-  if (m.includes('UNIQUE')) return new HttpError(409, 'Nama sudah dipakai anggota lain');
-  if (m.includes('FOREIGN KEY')) return bad('Data yang dirujuk tidak ditemukan');
-  console.error(e);
-  return new HttpError(500, 'Terjadi kesalahan pada server');
-}
-
-const sessionOut = (role, uid) => ({ token: newSession(role, uid), uid, role });
 
 const ROUTES = {
-  'GET /api/health': () => ({ ok: true }),
-  'GET /api/public': () => ({ site: kvGet('site') || {}, ...struktur(), meta: { sabuk: SABUK } }),
+  'GET /api/public': () => ({ ...struktur(), site: kvGet('site') || {}, sabuk: SABUK }),
 
-  'POST /api/login'(req, a, b) {
+  'POST /api/login': (req, b) => {
     guard(req);
-    const fail = msg => { failed(req); throw new HttpError(401, msg); };
-    if (b.role === 'pelatih') {
-      const nama = str(b.nama, 100), pw = String(b.password ?? b.kode ?? ''), kode = kvGet('kode') || DEFAULT_KODE_PELATIH;
-      if (!nama) throw bad('Nama wajib diisi');
-      if (!pw) throw bad('Kata sandi wajib diisi');
-      let s = get('SELECT id,pass_hash FROM staff WHERE lower(nama)=lower(?)', nama);
-      if (s?.pass_hash) {
-        if (!checkPw(pw, s.pass_hash)) fail('Nama atau kata sandi pelatih salah');
-      } else {
-        if (!safeEq(str(pw, 64), kode)) fail('Nama belum terdaftar atau kata sandi salah');
-        if (!s) { s = { id: 'p' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex') }; run('INSERT INTO staff(id,nama) VALUES(?,?)', s.id, nama); }
-      }
-      return sessionOut('pelatih', s.id);
-    }
-    if (b.role === 'murid') {
-      const q = str(b.nama, 100);
-      const rows = all('SELECT id,pass_hash,aktif FROM murid WHERE lower(nama)=lower(?) OR lower(no_anggota)=lower(?)', q, q);
-      const m = rows.find(r => checkPw(String(b.password || ''), r.pass_hash));
-      if (!m) fail('Nama/No. Anggota atau kata sandi salah');
+    const role = b.role;
+    if (role === 'murid') {
+      const q = str(b.nama, 100), pw = String(b.password || '');
+      if (!q || !pw) throw bad('Nama/nomor anggota dan kata sandi wajib diisi');
+      const m = get('SELECT * FROM murid WHERE LOWER(nama)=LOWER(?) OR LOWER(no_anggota)=LOWER(?)', q, q);
+      if (!m || !checkPw(pw, m.pass_hash)) { failed(req); throw new HttpError(401, 'Nama/nomor anggota atau kata sandi salah'); }
       if (!m.aktif) throw new HttpError(403, 'Akun Anda dinonaktifkan, hubungi pelatih');
       return sessionOut('murid', m.id);
     }
-    throw bad('Peran login tidak valid');
+    if (role === 'pelatih') {
+      const nama = str(b.nama, 100), pw = String(b.password || '');
+      if (!nama || !pw) throw bad('Nama pelatih dan kata sandi wajib diisi');
+      const s = get('SELECT * FROM staff WHERE LOWER(nama)=LOWER(?)', nama);
+      if (!s || !s.pass_hash || !checkPw(pw, s.pass_hash)) { failed(req); throw new HttpError(401, 'Nama pelatih atau kata sandi salah'); }
+      return sessionOut('pelatih', s.id);
+    }
+    throw bad('Peran tidak dikenali');
   },
 
-  'POST /api/register'(req, a, b) {
-    guard(req);
+  'POST /api/register': (_req, b) => {
     if (b.role === 'pelatih') {
       const nama = str(b.nama, 100), pw = String(b.password || '');
       if (!nama) throw bad('Nama lengkap pelatih wajib diisi');
       if (!pw) throw bad('Kata sandi wajib diisi');
-      if (get('SELECT 1 AS x FROM staff WHERE lower(nama)=lower(?)', nama)) {
-        throw new HttpError(409, 'Nama pelatih sudah terdaftar, silakan langsung Masuk');
-      }
-      const id = 'p' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex');
+      if (get('SELECT 1 AS x FROM staff WHERE LOWER(nama)=LOWER(?)', nama))
+        throw bad('Nama pelatih sudah terdaftar, silakan masuk di tab Masuk');
+      const id = 'p' + crypto.randomBytes(6).toString('hex');
       run('INSERT INTO staff(id,nama,pass_hash) VALUES(?,?,?)', id, nama, hashPw(pw));
       return sessionOut('pelatih', id);
     }
-    const nama = str(b.nama, 100), pw = String(b.password || ''), wilayahNama = str(b.wilayah, 100), cabangNama = str(b.cabang, 100), unitNama = str(b.unit, 100), noAnggota = str(b.noAnggota, 30), telp = str(b.telp, 30), jk = str(b.jk, 20), sabuk = str(b.sabuk, 30);
-    if (!nama) throw bad('Nama wajib diisi');
-    if (!jk) throw bad('Jenis kelamin wajib diisi');
-    if (!telp) throw bad('Nomor telepon wajib diisi');
-    if (!wilayahNama) throw bad('Nama wilayah wajib diisi');
-    if (!cabangNama) throw bad('Nama cabang wajib diisi');
-    if (!unitNama) throw bad('Nama unit latihan wajib diisi');
-    if (!sabuk) throw bad('Tingkatan sabuk wajib diisi');
-    if (!noAnggota) throw bad('Nomor anggota wajib diisi');
-    if (!pw) throw bad('Kata sandi wajib diisi');
-    if (get('SELECT 1 AS x FROM murid WHERE lower(no_anggota)=lower(?)', noAnggota)) {
-      throw new HttpError(409, 'Nomor anggota sudah dipakai anggota lain');
+    const nama = str(b.nama, 100), pw = String(b.password || '');
+    const jk = str(b.jk, 20), telp = str(b.telp, 30);
+    const wilayahNama = str(b.wilayah, 100), cabangNama = str(b.cabang, 100), unitNama = str(b.unit, 100);
+    const sabuk = str(b.sabuk, 30), noAnggota = str(b.noAnggota, 30);
+    if (!nama || !jk || !telp || !wilayahNama || !cabangNama || !unitNama || !sabuk || !noAnggota || !pw)
+      throw bad('Semua kolom pendaftaran wajib diisi');
+    if (jk !== 'Laki-laki' && jk !== 'Perempuan') throw bad('Jenis kelamin tidak valid');
+    if (!SABUK_IDS.includes(sabuk)) throw bad('Tingkatan sabuk tidak valid');
+    if (get('SELECT 1 AS x FROM murid WHERE LOWER(nama)=LOWER(?)', nama))
+      throw bad('Nama sudah terdaftar, silakan masuk');
+    if (get('SELECT 1 AS x FROM murid WHERE LOWER(no_anggota)=LOWER(?)', noAnggota))
+      throw bad('Nomor anggota sudah terdaftar, gunakan nomor lain');
+
+    let w = get('SELECT id FROM wilayah WHERE LOWER(nama)=LOWER(?)', wilayahNama);
+    if (!w) {
+      const wId = 'w' + crypto.randomBytes(6).toString('hex');
+      run('INSERT INTO wilayah(id,nama) VALUES(?,?)', wId, wilayahNama);
+      w = { id: wId };
     }
-    const id = 'm' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex');
-    tx(() => {
-      let w = get('SELECT id FROM wilayah WHERE lower(nama)=lower(?)', wilayahNama);
-      if (!w) {
-        const wid = 'w' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex');
-        run('INSERT INTO wilayah(id,nama) VALUES(?,?)', wid, wilayahNama);
-        w = { id: wid };
-      }
-      let c = get('SELECT id FROM cabang WHERE lower(nama)=lower(?) AND wilayah_id=?', cabangNama, w.id);
-      if (!c) {
-        const cid = 'c' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex');
-        run('INSERT INTO cabang(id,nama,wilayah_id) VALUES(?,?,?)', cid, cabangNama, w.id);
-        c = { id: cid };
-      }
-      let u = get('SELECT id FROM unit WHERE lower(nama)=lower(?) AND cabang_id=?', unitNama, c.id);
-      if (!u) {
-        const uidNew = 'u' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex');
-        run('INSERT INTO unit(id,nama,lokasi,cabang_id) VALUES(?,?,?,?)', uidNew, unitNama, '', c.id);
-        u = { id: uidNew };
-      }
-      saveMurid(id, { nama, noAnggota, jk, telp, sabuk, unit: u.id, password: pw });
-    });
+    let c = get('SELECT id FROM cabang WHERE LOWER(nama)=LOWER(?) AND wilayah_id=?', cabangNama, w.id);
+    if (!c) {
+      const cId = 'c' + crypto.randomBytes(6).toString('hex');
+      run('INSERT INTO cabang(id,nama,wilayah_id) VALUES(?,?,?)', cId, cabangNama, w.id);
+      c = { id: cId };
+    }
+    let u = get('SELECT id FROM unit WHERE LOWER(nama)=LOWER(?) AND cabang_id=?', unitNama, c.id);
+    if (!u) {
+      const uId = 'u' + crypto.randomBytes(6).toString('hex');
+      run('INSERT INTO unit(id,nama,lokasi,cabang_id) VALUES(?,?,?,?)', uId, unitNama, '', c.id);
+      u = { id: uId };
+    }
+
+    const id = 'm' + crypto.randomBytes(6).toString('hex');
+    saveMurid(id, { nama, noAnggota, jk, telp, unit: u.id, sabuk, password: pw });
     return sessionOut('murid', id);
   },
 
-  'GET /api/me'(req, a) { need(a); return { uid: a.uid, role: a.role }; },
-  'GET /api/data'(req, a) { need(a); return { S: buildS(a) }; },
-  'GET /api/backup'(req, a) {
-    need(a, 'pelatih');
+  'GET /api/me': req => {
+    const a = need(auth(req));
+    return { role: a.role, uid: a.uid };
+  },
+
+  'POST /api/logout': req => {
+    const t = tokenOf(req);
+    if (t) run('DELETE FROM sessions WHERE token_hash=?', sha(t));
+    return { ok: true };
+  },
+
+  'GET /api/data': req => ({ S: buildS(need(auth(req))) }),
+
+  'GET /api/backup': req => {
+    need(auth(req), 'pelatih');
     return {
       version: 1,
       exportedAt: new Date().toISOString(),
-      tables: {
-        kv: all('SELECT * FROM kv'),
-        wilayah: all('SELECT * FROM wilayah'),
-        cabang: all('SELECT * FROM cabang'),
-        unit: all('SELECT * FROM unit'),
-        staff: all('SELECT * FROM staff'),
-        murid: all('SELECT * FROM murid'),
-        sabuk_riwayat: all('SELECT * FROM sabuk_riwayat'),
-        sesi: all('SELECT * FROM sesi'),
-        absen: all('SELECT * FROM absen'),
-        materi: all('SELECT * FROM materi'),
-        nilai: all('SELECT * FROM nilai'),
-        nilai_skor: all('SELECT * FROM nilai_skor'),
-      }
+      wilayah: all('SELECT * FROM wilayah'),
+      cabang: all('SELECT * FROM cabang'),
+      unit: all('SELECT * FROM unit'),
+      staff: all('SELECT * FROM staff'),
+      murid: all('SELECT * FROM murid'),
+      sabuk_riwayat: all('SELECT * FROM sabuk_riwayat'),
+      sesi: all('SELECT * FROM sesi'),
+      absen: all('SELECT * FROM absen'),
+      materi: all('SELECT * FROM materi'),
+      nilai: all('SELECT * FROM nilai'),
+      nilai_skor: all('SELECT * FROM nilai_skor'),
+      kv: all('SELECT * FROM kv'),
     };
   },
-  'POST /api/restore'(req, a, b) {
-    need(a, 'pelatih');
-    const t = b?.tables;
-    if (!t || typeof t !== 'object') throw bad('File backup tidak valid');
+
+  'POST /api/restore': (req, b) => {
+    need(auth(req), 'pelatih');
+    if (!b || typeof b !== 'object' || !Array.isArray(b.wilayah)) throw bad('Format file backup tidak valid');
     tx(() => {
-      for (const r of (t.kv || [])) run('INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v', r.k, r.v);
-      for (const r of (t.wilayah || [])) run('INSERT INTO wilayah(id,nama) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET nama=excluded.nama', r.id, r.nama);
-      for (const r of (t.cabang || [])) run('INSERT INTO cabang(id,nama,wilayah_id) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET nama=excluded.nama,wilayah_id=excluded.wilayah_id', r.id, r.nama, r.wilayah_id);
-      for (const r of (t.unit || [])) run('INSERT INTO unit(id,nama,lokasi,cabang_id) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET nama=excluded.nama,lokasi=excluded.lokasi,cabang_id=excluded.cabang_id', r.id, r.nama, r.lokasi || '', r.cabang_id);
-      for (const r of (t.staff || [])) run('INSERT INTO staff(id,nama,wilayah_id,pass_hash) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET nama=excluded.nama,wilayah_id=excluded.wilayah_id,pass_hash=COALESCE(excluded.pass_hash,staff.pass_hash)', r.id, r.nama, r.wilayah_id || null, r.pass_hash || null);
-      for (const r of (t.murid || [])) run('INSERT INTO murid(id,no_anggota,nama,jk,telp,tgl_gabung,aktif,sabuk,unit_id,foto,pass_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET no_anggota=excluded.no_anggota,nama=excluded.nama,jk=excluded.jk,telp=excluded.telp,tgl_gabung=excluded.tgl_gabung,aktif=excluded.aktif,sabuk=excluded.sabuk,unit_id=excluded.unit_id,foto=excluded.foto,pass_hash=COALESCE(excluded.pass_hash,murid.pass_hash)', r.id, r.no_anggota, r.nama, r.jk, r.telp || '', r.tgl_gabung || '', r.aktif ?? 1, r.sabuk || 'putih', r.unit_id || null, r.foto || '', r.pass_hash || null);
-      for (const r of (t.sesi || [])) run('INSERT INTO sesi(id,tgl,materi,pelatih,unit_id) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET tgl=excluded.tgl,materi=excluded.materi,pelatih=excluded.pelatih,unit_id=excluded.unit_id', r.id, r.tgl, r.materi, r.pelatih || '', r.unit_id || null);
-      for (const r of (t.absen || [])) run('INSERT INTO absen(sesi_id,murid_id,status,updated_at) VALUES(?,?,?,?) ON CONFLICT(sesi_id,murid_id) DO UPDATE SET status=excluded.status,updated_at=excluded.updated_at', r.sesi_id, r.murid_id, r.status, r.updated_at || '');
-      for (const r of (t.materi || [])) run('INSERT INTO materi(id,kategori,nama,urut) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET kategori=excluded.kategori,nama=excluded.nama,urut=excluded.urut', r.id, r.kategori, r.nama, r.urut || 0);
-      for (const r of (t.nilai || [])) run('INSERT INTO nilai(sesi_id,murid_id,catatan,oleh,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(sesi_id,murid_id) DO UPDATE SET catatan=excluded.catatan,oleh=excluded.oleh,updated_at=excluded.updated_at', r.sesi_id, r.murid_id, r.catatan || '', r.oleh || '', r.updated_at || '');
-      for (const r of (t.nilai_skor || [])) run('INSERT INTO nilai_skor(sesi_id,murid_id,materi_id,skor) VALUES(?,?,?,?) ON CONFLICT(sesi_id,murid_id,materi_id) DO UPDATE SET skor=excluded.skor', r.sesi_id, r.murid_id, r.materi_id, r.skor);
+      run('DELETE FROM nilai_skor'); run('DELETE FROM nilai'); run('DELETE FROM absen');
+      run('DELETE FROM sesi'); run('DELETE FROM sabuk_riwayat'); run('DELETE FROM murid');
+      run('DELETE FROM unit'); run('DELETE FROM cabang'); run('DELETE FROM wilayah');
+      for (const r of (b.wilayah || [])) run('INSERT INTO wilayah(id,nama,created_at) VALUES(?,?,?)', r.id, r.nama, r.created_at || '');
+      for (const r of (b.cabang || [])) run('INSERT INTO cabang(id,nama,wilayah_id) VALUES(?,?,?)', r.id, r.nama, r.wilayah_id);
+      for (const r of (b.unit || [])) run('INSERT INTO unit(id,nama,lokasi,cabang_id) VALUES(?,?,?,?)', r.id, r.nama, r.lokasi || '', r.cabang_id);
+      for (const r of (b.staff || [])) run('INSERT OR IGNORE INTO staff(id,nama,wilayah_id,telp,foto,pass_hash) VALUES(?,?,?,?,?,?)', r.id, r.nama, r.wilayah_id || null, r.telp || '', r.foto || '', r.pass_hash || null);
+      for (const r of (b.murid || [])) run('INSERT INTO murid(id,no_anggota,nama,jk,telp,tgl_gabung,aktif,sabuk,unit_id,foto,pass_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?)', r.id, r.no_anggota, r.nama, r.jk || 'Laki-laki', r.telp || '', r.tgl_gabung || '', r.aktif ?? 1, r.sabuk || 'putih', r.unit_id || null, r.foto || '', r.pass_hash || null);
+      for (const r of (b.sabuk_riwayat || [])) run('INSERT INTO sabuk_riwayat(murid_id,sabuk,tgl) VALUES(?,?,?)', r.murid_id, r.sabuk, r.tgl);
+      for (const r of (b.sesi || [])) run('INSERT INTO sesi(id,tgl,materi,pelatih,unit_id) VALUES(?,?,?,?,?)', r.id, r.tgl, r.materi, r.pelatih || '', r.unit_id || null);
+      for (const r of (b.absen || [])) run('INSERT INTO absen(sesi_id,murid_id,status,updated_at) VALUES(?,?,?,?)', r.sesi_id, r.murid_id, r.status, r.updated_at || '');
+      if (Array.isArray(b.materi) && b.materi.length) {
+        run('DELETE FROM materi');
+        for (const r of b.materi) run('INSERT INTO materi(id,kategori,nama,urut) VALUES(?,?,?,?)', r.id, r.kategori, r.nama, r.urut || 0);
+      }
+      for (const r of (b.nilai || [])) run('INSERT INTO nilai(sesi_id,murid_id,catatan,oleh,updated_at) VALUES(?,?,?,?,?)', r.sesi_id, r.murid_id, r.catatan || '', r.oleh || '', r.updated_at || '');
+      for (const r of (b.nilai_skor || [])) run('INSERT INTO nilai_skor(sesi_id,murid_id,materi_id,skor) VALUES(?,?,?,?)', r.sesi_id, r.murid_id, r.materi_id, r.skor);
+      for (const r of (b.kv || [])) run('INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v', r.k, r.v);
     });
     return { ok: true };
   },
-  'POST /api/set'(req, a, b) {
-    need(a);
-    const [col, key] = parsePath(b.path);
-    if (!SET[col]) throw bad('Koleksi tidak dikenal');
-    if (typeof b.data !== 'object' || !b.data) throw bad('Data tidak valid');
-    tx(() => SET[col](a, key, b.data));
+
+  'POST /api/set': (req, b) => {
+    const a = need(auth(req));
+    const p = str(b.path, 140), s = p.indexOf('/');
+    if (s < 1) throw bad('Path tidak valid');
+    const col = p.slice(0, s), key = p.slice(s + 1);
+    if (!idOk.test(key) || !SET[col]) throw bad('Target tidak valid');
+    SET[col](a, key, b.data || {});
     return { ok: true };
   },
-  'POST /api/del'(req, a, b) {
-    need(a);
-    const [col, key] = parsePath(b.path);
-    if (!DEL[col]) throw forbidden();
-    tx(() => DEL[col](a, key));
+
+  'POST /api/del': (req, b) => {
+    const a = need(auth(req));
+    const p = str(b.path, 140), s = p.indexOf('/');
+    if (s < 1) throw bad('Path tidak valid');
+    const col = p.slice(0, s), key = p.slice(s + 1);
+    if (!idOk.test(key)) throw bad('Kunci tidak valid');
+
+    if (col === 'absen') {
+      const i = key.indexOf('_'); if (i < 1) throw bad('Kunci tidak valid');
+      const sesi = key.slice(0, i), uid = key.slice(i + 1);
+      if (a.role === 'murid') {
+        if (uid !== a.uid) throw forbidden();
+        const sr = get('SELECT tgl FROM sesi WHERE id=?', sesi);
+        if (!sr || sr.tgl !== today()) throw bad('Absensi hanya bisa dibatalkan pada hari yang sama');
+      } else need(a, 'pelatih');
+      run('DELETE FROM absen WHERE sesi_id=? AND murid_id=?', sesi, uid);
+      return { ok: true };
+    }
+    need(a, 'pelatih');
+    const t = DEL_TABLE[col]; if (!t) throw bad('Target tidak valid');
+    if (col === 'staff' && key === a.uid) throw bad('Tidak bisa menghapus akun Anda sendiri yang sedang aktif');
+    run(`DELETE FROM ${t} WHERE id=?`, key);
     return { ok: true };
   },
-  'POST /api/logout'(req, a) { if (a) run('DELETE FROM sessions WHERE token_hash=?', sha(tokenOf(req))); return { ok: true }; },
 };
 
+/* ---------- HTTP server & static files ---------- */
 const MIME = {
-  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
-  '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json',
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
 };
-
-function send(res, code, obj) {
-  const body = JSON.stringify(obj);
-  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-  res.end(body);
-}
+const ALLOWED_STATIC = new Set(['/index.html', '/app.js', '/style.css', '/logo.png']);
 
 function readBody(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = []; let n = 0;
-    req.on('data', c => { n += c.length; if (n > 2_000_000) { reject(new HttpError(413, 'Data terlalu besar')); req.destroy(); } else chunks.push(c); });
+  return new Promise((res, rej) => {
+    let size = 0; const chunks = [];
+    req.on('data', c => { size += c.length; if (size > 800_000) { req.destroy(); rej(new HttpError(413, 'Data terlalu besar')); } else chunks.push(c); });
     req.on('end', () => {
-      if (!n) return resolve({});
-      try { const j = JSON.parse(Buffer.concat(chunks).toString('utf8')); resolve(j && typeof j === 'object' ? j : {}); }
-      catch { reject(bad('JSON tidak valid')); }
+      if (!chunks.length) return res({});
+      try { res(JSON.parse(Buffer.concat(chunks).toString('utf8'))); } catch { rej(bad('Format JSON tidak valid')); }
     });
-    req.on('error', reject);
+    req.on('error', rej);
   });
 }
 
-function serveStatic(req, res, pathname) {
-  if (!['GET', 'HEAD'].includes(req.method) || !fs.existsSync(PUB)) return false;
-  let p;
-  try { p = decodeURIComponent(pathname); } catch { return false; }
-  if (p.endsWith('/')) p += 'index.html';
-  const f = path.normalize(path.join(PUB, p));
-  if (f !== PUB && !f.startsWith(PUB + path.sep)) return false;
-  if (!fs.existsSync(f) || !fs.statSync(f).isFile()) return false;
-  res.writeHead(200, { 'Content-Type': MIME[path.extname(f)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
-  if (req.method === 'HEAD') return res.end(), true;
-  fs.createReadStream(f).pipe(res);
-  return true;
+function cors(req, res) {
+  if (!CORS_ORIGIN) return;
+  const o = req.headers.origin;
+  if (CORS_ORIGIN === '*' || o === CORS_ORIGIN) {
+    res.setHeader('Access-Control-Allow-Origin', CORS_ORIGIN === '*' ? '*' : o);
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Vary', 'Origin');
+  }
 }
 
 const server = http.createServer(async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Referrer-Policy', 'same-origin');
-  if (CORS_ORIGIN) {
-    res.setHeader('Access-Control-Allow-Origin', CORS_ORIGIN);
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Vary', 'Origin');
-    if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  cors(req, res);
+  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+
+  const url = new URL(req.url, 'http://localhost');
+  if (url.pathname.startsWith('/api/')) {
+    const fn = ROUTES[`${req.method} ${url.pathname}`];
+    try {
+      if (!fn) throw new HttpError(404, 'Endpoint tidak ditemukan');
+      const body = req.method === 'POST' ? await readBody(req) : {};
+      const out = await fn(req, body);
+      const data = JSON.stringify(out);
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(data);
+    } catch (e) {
+      const code = e instanceof HttpError ? e.code : 500;
+      if (code === 500) console.error(e);
+      res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: code === 500 ? 'Terjadi kesalahan pada server' : e.message }));
+    }
+    return;
   }
-  const { pathname } = new URL(req.url, 'http://x');
-  if (!pathname.startsWith('/api/')) {
-    if (serveStatic(req, res, pathname)) return;
-    return send(res, 404, { error: 'Tidak ditemukan' });
-  }
-  try {
-    const h = ROUTES[`${req.method} ${pathname.replace(/\/$/, '')}`];
-    if (!h) throw new HttpError(404, 'Endpoint tidak ditemukan');
-    const body = req.method === 'POST' ? await readBody(req) : {};
-    send(res, 200, h(req, auth(req), body) ?? {});
-  } catch (e) {
-    const err = dbError(e);
-    send(res, err.code, { error: err.message });
-  }
+
+  let p = url.pathname === '/' ? '/index.html' : url.pathname;
+  if (!ALLOWED_STATIC.has(p)) { res.writeHead(404); res.end('Not found'); return; }
+  const file = path.join(PUB, p);
+  if (!file.startsWith(PUB)) { res.writeHead(403); res.end(); return; }
+  fs.readFile(file, (err, buf) => {
+    if (err) { res.writeHead(404); res.end('Not found'); return; }
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+    res.end(buf);
+  });
 });
 
-server.listen(PORT, '0.0.0.0', () => console.log(`SBTI backend jalan di http://localhost:${PORT}  (DB: ${db.location?.() ?? 'sqlite'})`));
-for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { server.close(() => { try { db.close(); } catch {} process.exit(0); }); });
+server.listen(PORT, () => console.log(`SBTI Management System aktif di http://localhost:${PORT}`));
