@@ -1032,17 +1032,29 @@ async function saveAccountPassword() {
 function vWeb() {
   const s = site();
   return `<h2>Ubah Website</h2>
-  <div class="card">
-    <label class="m">Nama Website</label>
-    <input id="wn" value="${E(s.nama)}">
-    <label class="m">Subjudul / Tagline</label>
-    <input id="wt" value="${E(s.tag)}">
-    <label class="m">Teks Sambutan</label>
-    <textarea id="ws" rows="3">${E(s.sambutan)}</textarea>
-    <label class="m">Logo Perguruan (opsional)</label>
-    <input id="wl" type="file" accept="image/*">
+  <div class="card" style="max-width:640px">
+    <div style="margin-bottom:12px">
+      <label class="m" style="display:block;margin-bottom:6px;font-weight:600">Nama Website</label>
+      <input id="wn" value="${E(s.nama)}" style="width:100%;display:block">
+    </div>
+    <div style="margin-bottom:12px">
+      <label class="m" style="display:block;margin-bottom:6px;font-weight:600">Subjudul / Tagline</label>
+      <input id="wt" value="${E(s.tag)}" style="width:100%;display:block">
+    </div>
+    <div style="margin-bottom:12px">
+      <label class="m" style="display:block;margin-bottom:6px;font-weight:600">Teks Sambutan</label>
+      <textarea id="ws" rows="3" style="width:100%;display:block">${E(s.sambutan)}</textarea>
+    </div>
+    <div style="margin-bottom:14px">
+      <label class="m" style="display:block;margin-bottom:6px;font-weight:600">Logo Perguruan (opsional)</label>
+      <input id="wl" type="file" accept="image/*" style="width:100%;display:block">
+    </div>
     <div class="btns"><button class="b p" onclick="saveWeb()">Simpan Perubahan</button></div>
   </div>`;
+}
+
+function trimBlackBars(img) {
+  return { sx: 0, sy: 0, sw: img.width, sh: img.height };
 }
 
 const shrink = (fl, w = 256, h = 256) => new Promise(r => {
