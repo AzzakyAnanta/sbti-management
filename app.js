@@ -1035,19 +1035,19 @@ function vWeb() {
   <div class="card" style="max-width:640px">
     <div style="margin-bottom:12px">
       <label class="m" style="display:block;margin-bottom:6px;font-weight:600">Nama Website</label>
-      <input id="wn" value="${E(s.nama)}" style="width:100%;display:block">
+      <input id="wn" value="${E(s.nama)}" style="width:100%;display:block;box-sizing:border-box">
     </div>
     <div style="margin-bottom:12px">
       <label class="m" style="display:block;margin-bottom:6px;font-weight:600">Subjudul / Tagline</label>
-      <input id="wt" value="${E(s.tag)}" style="width:100%;display:block">
+      <input id="wt" value="${E(s.tag)}" style="width:100%;display:block;box-sizing:border-box">
     </div>
     <div style="margin-bottom:12px">
       <label class="m" style="display:block;margin-bottom:6px;font-weight:600">Teks Sambutan</label>
-      <textarea id="ws" rows="3" style="width:100%;display:block">${E(s.sambutan)}</textarea>
+      <textarea id="ws" rows="3" style="width:100%;display:block;box-sizing:border-box">${E(s.sambutan)}</textarea>
     </div>
     <div style="margin-bottom:14px">
       <label class="m" style="display:block;margin-bottom:6px;font-weight:600">Logo Perguruan (opsional)</label>
-      <input id="wl" type="file" accept="image/*" style="width:100%;display:block">
+      <input id="wl" type="file" accept="image/*" style="width:100%;display:block;box-sizing:border-box">
     </div>
     <div class="btns"><button class="b p" onclick="saveWeb()">Simpan Perubahan</button></div>
   </div>`;
