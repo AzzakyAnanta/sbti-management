@@ -511,9 +511,9 @@ function vRaport() {
   return `<h2>Raport Bulanan</h2>${staff ? filterBarHTML() : ''}
   <div class="row np"><input type="month" value="${R.p}" onchange="R.p=this.value||R.p;render()">
     ${staff ? `<select onchange="R.mode=this.value;render()"><option value="ind" ${R.mode === 'ind' ? 'selected' : ''}>Raport individu</option><option value="all" ${R.mode === 'all' ? 'selected' : ''}>Rekap seluruh anggota</option></select>
-      ${R.mode === 'ind' ? `<select onchange="R.u=this.value;render()">${ms.map(m => `<option value="${m.id}" ${m.id === R.u ? 'selected' : ''}>${E(m.nama)}</option>`).join('')}</select>` : ''}` : `<label class="b" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">📷 Upload Foto Raport<input type="file" accept="image/*" style="display:none" onchange="uploadMyFoto(this.files[0])"></label>`}
-    <button class="b p" onclick="window.print()">Cetak Raport</button>
-    <button class="b" onclick="toast('Pilih Simpan sebagai PDF pada dialog cetak');window.print()">Download PDF</button>
+      ${R.mode === 'ind' ? `<select onchange="R.u=this.value;render()">${ms.map(m => `<option value="${m.id}" ${m.id === R.u ? 'selected' : ''}>${E(m.nama)}</option>`).join('')}</select>` : ''}
+      <button class="b p" onclick="window.print()">Cetak Raport</button>
+      <button class="b" onclick="toast('Pilih Simpan sebagai PDF pada dialog cetak');window.print()">Download PDF</button>` : `<label class="b" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">📷 Upload Foto Raport<input type="file" accept="image/*" style="display:none" onchange="uploadMyFoto(this.files[0])"></label>`}
     ${R.mode === 'ind' ? `<select title="Pilih Nama Pelatih" onchange="R.pelatih=this.value;render()"><option value="">-- Pilih Pelatih --</option>${daftarPelatih.map(nm => `<option value="${E(nm)}" ${nm === pelatihAktif ? 'selected' : ''}>${E(nm)}</option>`).join('')}</select>` : ''}
   </div>${R.mode === 'all' && staff ? rekapHTML(R.p) : R.u ? rptHTML(R.u, R.p) : '<div class="card">Belum ada anggota.</div>'}`;
 }
@@ -650,15 +650,36 @@ function vAbsen() {
       }).join('')}
     </div>
   </div>
-  ${ss.length ? ss.map(s => {
-    const ab = S.absen[s.id + '_' + uid], a = ab?.status;
-    return `<div class="card"><b>${E(s.materi)}</b><div class="m">${fdShort(s.tgl)}${s.jam ? ` · 🕒 ${E(s.jam)}` : ''}</div>
-      ${isToday
-        ? `<div class="btns">${['hadir', 'izin', 'sakit'].map(k => `<button class="b ${a === k ? 'on' : ''}" onclick="save('absen/${s.id}_${uid}',{sesi:'${s.id}',uid:'${uid}',status:'${k}'})">${cap(k)}</button>`).join('')}</div>`
-        : `<p class="m" style="margin-bottom:0">Absensi mandiri hanya dibuka pada hari latihan berlangsung.</p>`}
-      ${a ? `<p class="m" style="margin-bottom:0">Status Anda: <b>${cap(a)}</b></p>` : ''}
-    </div>`;
-  }).join('') : `<div class="card" style="text-align:center;padding:42px 16px">
+  ${ss.length ? `
+    <div style="display:flex;gap:14px;padding:4px 4px 10px;font-weight:600;font-size:13px;opacity:.75">
+      <div style="width:62px;flex-shrink:0">Jam</div>
+      <div>Materi Latihan</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      ${ss.map(s => {
+        const ab = S.absen[s.id + '_' + uid], a = ab?.status;
+        const [jMulai, jSelesai] = (s.jam || '').split('-').map(x => x.trim());
+        const unitNama = S.unit[s.unit]?.nama || S.unit[me.unit]?.nama || 'Semua Unit';
+        return `<div style="display:flex;gap:14px;align-items:stretch">
+          <div style="width:62px;flex-shrink:0;padding-top:14px;font-weight:700;font-size:14px;line-height:1.8;border-right:2px solid var(--l)">
+            <div>${E(jMulai || '--:--')}</div>
+            <div style="opacity:.8">${E(jSelesai || '--:--')}</div>
+          </div>
+          <div class="card" style="flex:1;margin:0;padding:16px">
+            <div style="font-size:16px;font-weight:700;margin-bottom:8px">${E(s.materi)}</div>
+            <div style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:8px;background:var(--bg);border:1px solid var(--l);font-size:12.5px;margin-bottom:10px">
+              📍 ${E(unitNama)}
+            </div>
+            <div class="m" style="font-size:13px;margin-bottom:10px">${E(s.pelatih || 'Pelatih SBTI')}</div>
+            ${isToday
+              ? `<div class="btns" style="margin-top:4px">${['hadir', 'izin', 'sakit'].map(k => `<button class="b ${a === k ? 'on' : ''}" onclick="save('absen/${s.id}_${uid}',{sesi:'${s.id}',uid:'${uid}',status:'${k}'})">${cap(k)}</button>`).join('')}</div>`
+              : `<div class="m" style="font-size:12px">Absensi mandiri hanya dibuka pada hari latihan berlangsung.</div>`}
+            ${a ? `<div style="margin-top:10px;color:#4ade80;font-weight:700;font-size:13.5px;display:flex;align-items:center;gap:6px">✅ Absen Diterima (${cap(a)})</div>` : ''}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  ` : `<div class="card" style="text-align:center;padding:42px 16px">
     <svg width="84" height="84" viewBox="0 0 84 84" fill="none" style="margin:0 auto 12px;display:block">
       <circle cx="42" cy="42" r="36" fill="#46b0f8" fill-opacity="0.10"/>
       <rect x="20" y="22" width="44" height="38" rx="7" fill="#132c4e" stroke="#46b0f8" stroke-width="2"/>
