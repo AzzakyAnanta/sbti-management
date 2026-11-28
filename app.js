@@ -33,7 +33,8 @@ const IC = {
   web: '🎨',
   absen: '✅',
   nilai: '⭐',
-  materi: '📚'
+  materi: '📚',
+  profil: '👤'
 };
 
 let uid, role = null, view = '', sel = null, Q = '', QSabuk = '';
@@ -172,13 +173,13 @@ function render() {
   const A = $('#app');
   if (!entered) { A.innerHTML = authHTML(); return; }
   const nav = role === 'murid'
-    ? [['absen', 'Absen'], ['materi', 'Materi Latihan'], ['nilai', 'Raport Saya']]
-    : [['dash', 'Dashboard'], ['wilayah', 'Wilayah & Unit'], ['anggota', 'Anggota'], ['latihan', 'Latihan & Absen'], ['raport', 'Raport'], ['atur', 'Pengaturan'], ['web', 'Ubah Website']];
+    ? [['absen', 'Absen'], ['materi', 'Materi Latihan'], ['nilai', 'Raport Saya'], ['profil', 'Profil']]
+    : [['dash', 'Dashboard'], ['wilayah', 'Wilayah & Unit'], ['anggota', 'Anggota'], ['latihan', 'Latihan & Absen'], ['raport', 'Raport'], ['atur', 'Pengaturan'], ['web', 'Ubah Website'], ['profil', 'Profil']];
 
   if (!nav.some(n => n[0] === view)) view = nav[0][0];
   const V = {
     dash: vDash, wilayah: vWilayah, anggota: vAnggota, latihan: vLatihan,
-    raport: vRaport, atur: vAtur, web: vWeb, absen: vAbsen, nilai: vRaport, materi: vMateri
+    raport: vRaport, atur: vAtur, web: vWeb, absen: vAbsen, nilai: vRaport, materi: vMateri, profil: vProfil
   }[view]();
 
   A.innerHTML = `<aside>
@@ -666,15 +667,139 @@ async function restoreBackup(fl) {
   } catch (e) { toast(e.message || 'Gagal membaca file backup'); }
 }
 
-function vWeb() {
-  const s = site();
-  return `<h2>Ubah Website</h2><div class="card">
-    <label class="m">Nama website</label><input id="wn" value="${E(s.nama)}" style="width:100%;margin-bottom:8px">
-    <label class="m">Tagline</label><input id="wt" value="${E(s.tag)}" style="width:100%;margin-bottom:8px">
-    <label class="m">Teks sambutan</label><textarea id="ws" rows="3" style="width:100%;margin-bottom:8px">${E(s.sambutan)}</textarea>
-    <label class="m">Ganti logo</label><input id="wl" type="file" accept="image/*" style="width:100%;margin-bottom:8px">
-    <div class="btns"><button class="b p" onclick="saveWeb()">Simpan</button><button class="b" onclick="save('cfg/main',{...(S.cfg.main||{}),site:{}})">Kembalikan bawaan</button></div>
+function vProfil() {
+  const isMurid = role === 'murid';
+  const u = isMurid ? (S.murid[uid] || {}) : (S.staff[uid] || {});
+  const subText = isMurid
+    ? `${E(u.telp || u.noAnggota || '-')} · Sabuk ${E(sabukNama(u.sabuk))}`
+    : `${E(u.telp || 'Pelatih SBTI')}${u.wilayah && S.wilayah[u.wilayah] ? ' · ' + E(S.wilayah[u.wilayah].nama) : ''}`;
+  const avatar = u.foto
+    ? `<img src="${u.foto}" style="width:76px;height:76px;border-radius:50%;object-fit:cover;border:2.5px solid #46b0f8;display:block">`
+    : `<div style="width:76px;height:76px;border-radius:50%;background:rgba(70,176,248,.16);border:2px solid #46b0f8;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:700;color:#46b0f8">${E((u.nama || 'U')[0].toUpperCase())}</div>`;
+
+  return `<h2>Profil Saya</h2>
+  <div class="card" style="display:flex;align-items:center;gap:16px;padding:20px;flex-wrap:wrap">
+    <label style="position:relative;cursor:pointer;flex-shrink:0" title="Klik untuk ganti foto profil">
+      ${avatar}
+      <span style="position:absolute;bottom:0;right:0;width:24px;height:24px;border-radius:50%;background:#46b0f8;color:#061529;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">📷</span>
+      <input type="file" accept="image/*" style="display:none" onchange="updateAvatar(this.files[0])">
+    </label>
+    <div style="flex:1;min-width:180px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <b style="font-size:18px">${E(u.nama || '-')}</b>
+        <span style="padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;background:rgba(34,197,94,.16);color:#4ade80;border:1px solid rgba(74,222,128,.35)">Verified</span>
+      </div>
+      <div class="m" style="margin-top:5px;font-size:13.5px">${subText}</div>
+      ${isMurid ? `<div class="m" style="margin-top:2px;font-size:12.5px">📍 ${E(unitLabel(u.unit))}</div>` : ''}
+    </div>
+  </div>
+
+  <div style="font-weight:700;font-size:15px;margin:18px 0 10px;opacity:.9">Personal</div>
+  <div class="card" style="padding:0;overflow:hidden">
+    <div onclick="openInfoProfile()" style="display:flex;align-items:center;justify-content:space-between;padding:16px 18px;cursor:pointer;border-bottom:1px solid var(--l)">
+      <div style="display:flex;align-items:center;gap:14px">
+        <span style="width:36px;height:36px;border-radius:10px;background:rgba(70,176,248,.14);color:#46b0f8;display:flex;align-items:center;justify-content:center;font-size:18px">👤</span>
+        <div>
+          <div style="font-weight:600;font-size:15px">Info Profile</div>
+          <div class="m" style="font-size:12px;margin-top:2px">Lihat dan ubah data pribadi Anda</div>
+        </div>
+      </div>
+      <span class="m" style="font-size:18px">›</span>
+    </div>
+    <div onclick="openAccountSettings()" style="display:flex;align-items:center;justify-content:space-between;padding:16px 18px;cursor:pointer">
+      <div style="display:flex;align-items:center;gap:14px">
+        <span style="width:36px;height:36px;border-radius:10px;background:rgba(70,176,248,.14);color:#46b0f8;display:flex;align-items:center;justify-content:center;font-size:18px">⚙️</span>
+        <div>
+          <div style="font-weight:600;font-size:15px">Pengaturan Akun</div>
+          <div class="m" style="font-size:12px;margin-top:2px">Ubah kata sandi & keamanan akun</div>
+        </div>
+      </div>
+      <span class="m" style="font-size:18px">›</span>
+    </div>
   </div>`;
+}
+
+async function updateAvatar(fl) {
+  if (!fl) return;
+  const foto = await shrink(fl, 240, 320);
+  await save((role === 'murid' ? 'murid/' : 'staff/') + uid, { foto });
+  toast('Foto profil diperbarui');
+}
+
+function openInfoProfile() {
+  if (role === 'murid') {
+    const m = S.murid[uid] || {};
+    modal(`<h3 style="margin-top:0">Info Profile Anggota</h3>
+      <label class="m">Nama Lengkap</label>
+      <input id="ip_nama" value="${E(m.nama)}">
+      <label class="m">No. Anggota</label>
+      <input value="${E(m.noAnggota)}" disabled style="opacity:.7">
+      <label class="m">Tingkatan Sabuk</label>
+      <input value="${E(sabukNama(m.sabuk))}" disabled style="opacity:.7">
+      <label class="m">Unit Latihan</label>
+      <input value="${E(unitLabel(m.unit))}" disabled style="opacity:.7">
+      <label class="m">Jenis Kelamin</label>
+      <select id="ip_jk" style="width:100%;margin-bottom:8px">
+        <option value="Laki-laki" ${m.jk === 'Perempuan' ? '' : 'selected'}>Laki-laki</option>
+        <option value="Perempuan" ${m.jk === 'Perempuan' ? 'selected' : ''}>Perempuan</option>
+      </select>
+      <label class="m">Nomor Telepon</label>
+      <input id="ip_telp" value="${E(m.telp)}">
+      <div class="btns">
+        <button class="b p" onclick="saveInfoProfile()">Simpan</button>
+        <button class="b" onclick="modal('')">Tutup</button>
+      </div>`);
+  } else {
+    const s = S.staff[uid] || {}, ws = listWilayah();
+    modal(`<h3 style="margin-top:0">Info Profile Pelatih</h3>
+      <label class="m">Nama Lengkap</label>
+      <input id="ip_nama" value="${E(s.nama)}">
+      <label class="m">Nomor Telepon</label>
+      <input id="ip_telp" placeholder="Nomor telepon pelatih" value="${E(s.telp || '')}">
+      <label class="m">Wilayah Tugas</label>
+      <select id="ip_wil" style="width:100%;margin-bottom:8px">
+        <option value="">-- Pilih Wilayah --</option>
+        ${ws.map(w => `<option value="${w.id}" ${s.wilayah === w.id ? 'selected' : ''}>${E(w.nama)}</option>`).join('')}
+      </select>
+      <div class="btns">
+        <button class="b p" onclick="saveInfoProfile()">Simpan</button>
+        <button class="b" onclick="modal('')">Tutup</button>
+      </div>`);
+  }
+}
+
+async function saveInfoProfile() {
+  const nama = v('ip_nama').trim();
+  if (!nama) return toast('Nama lengkap wajib diisi');
+  if (role === 'murid') {
+    await save('murid/' + uid, { nama, jk: v('ip_jk'), telp: v('ip_telp').trim() });
+  } else {
+    await save('staff/' + uid, { nama, telp: v('ip_telp').trim(), wilayah: v('ip_wil') });
+  }
+  modal('');
+  toast('Info profil disimpan');
+}
+
+function openAccountSettings() {
+  modal(`<h3 style="margin-top:0">Pengaturan Akun</h3>
+    <p class="m" style="margin-top:0">Ubah kata sandi yang digunakan untuk masuk ke akun Anda.</p>
+    <label class="m">Kata Sandi Baru</label>
+    <input id="acc_pw1" type="password" placeholder="Masukkan kata sandi baru">
+    <label class="m">Ulangi Kata Sandi Baru</label>
+    <input id="acc_pw2" type="password" placeholder="Ulangi kata sandi baru">
+    <div class="btns">
+      <button class="b p" onclick="saveAccountPassword()">Simpan Kata Sandi</button>
+      <button class="b" onclick="modal('')">Batal</button>
+    </div>`);
+}
+
+async function saveAccountPassword() {
+  const p1 = v('acc_pw1'), p2 = v('acc_pw2');
+  if (!p1) return toast('Kata sandi baru wajib diisi');
+  if (p1 !== p2) return toast('Konfirmasi kata sandi tidak cocok');
+  await save((role === 'murid' ? 'murid/' : 'staff/') + uid, { password: p1 });
+  modal('');
+  toast('Kata sandi berhasil diperbarui');
 }
 
 const shrink = (fl, w = 256, h = 256) => new Promise(r => { const i = new Image(); i.onload = () => { const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(i, 0, 0, w, h); r(c.toDataURL('image/jpeg', .85)); }; i.src = URL.createObjectURL(fl); });
