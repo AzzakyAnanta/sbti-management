@@ -177,10 +177,17 @@ function render() {
     : [['dash', 'Dashboard'], ['wilayah', 'Wilayah & Unit'], ['anggota', 'Anggota'], ['latihan', 'Latihan & Absen'], ['raport', 'Raport'], ['atur', 'Pengaturan'], ['web', 'Ubah Website'], ['profil', 'Profil']];
 
   if (!nav.some(n => n[0] === view)) view = nav[0][0];
-  const V = {
-    dash: vDash, wilayah: vWilayah, anggota: vAnggota, latihan: vLatihan,
-    raport: vRaport, atur: vAtur, web: vWeb, absen: vAbsen, nilai: vRaport, materi: vMateri, profil: vProfil
-  }[view]();
+  let V = '';
+  try {
+    const fn = {
+      dash: vDash, wilayah: vWilayah, anggota: vAnggota, latihan: vLatihan,
+      raport: vRaport, atur: vAtur, web: vWeb, absen: vAbsen, nilai: vRaport, materi: vMateri, profil: vProfil
+    }[view];
+    V = fn ? fn() : '';
+  } catch (err) {
+    console.error(err);
+    V = `<div class="card"><b>Terjadi kesalahan tampilan:</b> ${E(err.message)}</div>`;
+  }
 
   A.innerHTML = `<aside>
     <img class="lg" src="${site().logo}">
@@ -424,7 +431,7 @@ function rptHTML(u, p) {
   const pelatihWilayah = (wId && daftarStaff.find(st => st.wilayah === wId)?.nama) || daftarStaff[0]?.nama;
   const namaPelatih = (role === 'pelatih' ? S.staff[uid]?.nama : '') || nilaiMurid || pelatihSesi || pelatihUnitLain || pelatihWilayah || '-';
   const fotoBox = m.foto
-    ? `<img src="${m.foto}" alt="Foto ${E(m.nama)}" style="width:112px;height:148px;object-fit:cover;border:1.5px solid #cbd5e1;border-radius:6px;display:block">`
+    ? `<img src="${m.foto}" alt="Foto ${E(m.nama)}" style="width:112px;height:148px;object-fit:cover;object-position:center 20%;border:1.5px solid #cbd5e1;border-radius:6px;display:block">`
     : `<div style="width:112px;height:148px;border:1.5px dashed #94a3b8;border-radius:6px;display:flex;align-items:center;justify-content:center;text-align:center;color:#64748b;font-size:11.5px;padding:6px;background:#f8fafc">Pas Foto<br>3x4</div>`;
   return `<div class="rpt"><img class="lg" src="${site().logo}"><h2>${E(site().nama)}</h2><p class="m">Raport Penilaian Bulanan · Periode ${fm(p)}</p>
     <div style="display:flex;gap:36px;align-items:flex-start;justify-content:space-between;max-width:760px;margin:0 auto 18px">
@@ -674,7 +681,7 @@ function vProfil() {
     ? `${E(u.telp || u.noAnggota || '-')} · Sabuk ${E(sabukNama(u.sabuk))}`
     : `${E(u.telp || 'Pelatih SBTI')}${u.wilayah && S.wilayah[u.wilayah] ? ' · ' + E(S.wilayah[u.wilayah].nama) : ''}`;
   const avatar = u.foto
-    ? `<img src="${u.foto}" style="width:76px;height:76px;border-radius:50%;object-fit:cover;border:2.5px solid #46b0f8;display:block">`
+    ? `<img src="${u.foto}" style="width:76px;height:76px;border-radius:50%;object-fit:cover;object-position:center 20%;border:2.5px solid #46b0f8;display:block">`
     : `<div style="width:76px;height:76px;border-radius:50%;background:rgba(70,176,248,.16);border:2px solid #46b0f8;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:700;color:#46b0f8">${E((u.nama || 'U')[0].toUpperCase())}</div>`;
 
   return `<h2>Profil Saya</h2>
@@ -721,7 +728,7 @@ function vProfil() {
 
 async function updateAvatar(fl) {
   if (!fl) return;
-  const foto = await shrink(fl, 240, 320);
+  const foto = await shrink(fl, 300, 300);
   await save((role === 'murid' ? 'murid/' : 'staff/') + uid, { foto });
   toast('Foto profil diperbarui');
 }
@@ -818,7 +825,22 @@ function vWeb() {
   </div>`;
 }
 
-const shrink = (fl, w = 256, h = 256) => new Promise(r => { const i = new Image(); i.onload = () => { const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(i, 0, 0, w, h); r(c.toDataURL('image/jpeg', .85)); }; i.src = URL.createObjectURL(fl); });
+const shrink = (fl, w = 256, h = 256) => new Promise(r => {
+  const i = new Image();
+  i.onload = () => {
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const scale = Math.max(w / i.width, h / i.height);
+    const sw = w / scale;
+    const sh = h / scale;
+    const sx = (i.width - sw) / 2;
+    const sy = Math.max(0, (i.height - sh) * 0.25);
+    c.getContext('2d').drawImage(i, sx, sy, sw, sh, 0, 0, w, h);
+    r(c.toDataURL('image/jpeg', .85));
+  };
+  i.src = URL.createObjectURL(fl);
+});
 async function saveWeb() { const o = { nama: v('wn').trim(), tag: v('wt').trim(), sambutan: v('ws').trim(), logo: S.cfg.main?.site?.logo || '' }; const fl = $('#wl').files[0]; if (fl) o.logo = await shrink(fl); await save('cfg/main', { ...(S.cfg.main || {}), site: o }); toast('Tersimpan'); }
 
 let TOKEN = localStorage.getItem('sbti_token') || '', last = '';
