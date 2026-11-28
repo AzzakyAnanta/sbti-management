@@ -728,9 +728,100 @@ function vProfil() {
 
 async function updateAvatar(fl) {
   if (!fl) return;
-  const foto = await shrink(fl, 300, 300);
-  await save((role === 'murid' ? 'murid/' : 'staff/') + uid, { foto });
-  toast('Foto profil diperbarui');
+  openPhotoCropper(fl, async (foto) => {
+    await save((role === 'murid' ? 'murid/' : 'staff/') + uid, { foto });
+    toast('Foto profil diperbarui');
+  });
+}
+
+function trimBlackBars(img) {
+  const tw = 240, th = Math.max(1, Math.round((img.height / img.width) * tw));
+  const tc = document.createElement('canvas');
+  tc.width = tw; tc.height = th;
+  const tctx = tc.getContext('2d');
+  tctx.drawImage(img, 0, 0, tw, th);
+  const { data } = tctx.getImageData(0, 0, tw, th);
+  const isDarkCol = x => {
+    let dark = 0;
+    for (let y = 0; y < th; y++) {
+      const idx = (y * tw + x) * 4;
+      if (data[idx] < 22 && data[idx + 1] < 22 && data[idx + 2] < 22) dark++;
+    }
+    return dark / th > 0.92;
+  };
+  const isDarkRow = y => {
+    let dark = 0;
+    for (let x = 0; x < tw; x++) {
+      const idx = (y * tw + x) * 4;
+      if (data[idx] < 22 && data[idx + 1] < 22 && data[idx + 2] < 22) dark++;
+    }
+    return dark / tw > 0.92;
+  };
+  let l = 0, r = tw - 1, t = 0, b = th - 1;
+  while (l < r - 10 && isDarkCol(l)) l++;
+  while (r > l + 10 && isDarkCol(r)) r--;
+  while (t < b - 10 && isDarkRow(t)) t++;
+  while (b > t + 10 && isDarkRow(b)) b--;
+  const sx = Math.round((l / tw) * img.width);
+  const sy = Math.round((t / th) * img.height);
+  const sw = Math.max(20, Math.round(((r - l + 1) / tw) * img.width));
+  const sh = Math.max(20, Math.round(((b - t + 1) / th) * img.height));
+  return { sx, sy, sw, sh };
+}
+
+function openPhotoCropper(fl, onDone) {
+  const img = new Image();
+  img.onload = () => {
+    const box = trimBlackBars(img);
+    let zoom = 1, offX = 0, offY = 0;
+    modal(`<h3 style="margin-top:0;text-align:center">Atur Posisi Foto Profil</h3>
+      <div style="display:flex;justify-content:center;margin:12px 0">
+        <canvas id="crop_cv" width="220" height="220" style="width:220px;height:220px;border-radius:50%;border:3px solid #46b0f8;background:#0b1d36"></canvas>
+      </div>
+      <div style="margin-bottom:8px">
+        <label class="m">Zoom (<span id="cz_lbl">100%</span>)</label>
+        <input id="cz_rng" type="range" min="100" max="250" value="100" style="width:100%">
+      </div>
+      <div style="margin-bottom:8px">
+        <label class="m">Geser Kiri / Kanan</label>
+        <input id="cx_rng" type="range" min="-50" max="50" value="0" style="width:100%">
+      </div>
+      <div style="margin-bottom:12px">
+        <label class="m">Geser Atas / Bawah</label>
+        <input id="cy_rng" type="range" min="-50" max="50" value="-15" style="width:100%">
+      </div>
+      <div class="btns">
+        <button class="b p" id="crop_ok">Simpan Foto</button>
+        <button class="b" onclick="modal('')">Batal</button>
+      </div>`);
+
+    offY = -15;
+    const cv = $('#crop_cv'), ctx = cv.getContext('2d');
+    const draw = () => {
+      const size = 220;
+      ctx.clearRect(0, 0, size, size);
+      const baseScale = Math.max(size / box.sw, size / box.sh) * zoom;
+      const dw = box.sw * baseScale;
+      const dh = box.sh * baseScale;
+      const maxX = Math.max(0, (dw - size) / 2);
+      const maxY = Math.max(0, (dh - size) / 2);
+      const dx = (size - dw) / 2 - (offX / 50) * maxX;
+      const dy = (size - dh) / 2 - (offY / 50) * maxY;
+      ctx.drawImage(img, box.sx, box.sy, box.sw, box.sh, dx, dy, dw, dh);
+    };
+    draw();
+    $('#cz_rng').oninput = e => { zoom = +e.target.value / 100; $('#cz_lbl').textContent = e.target.value + '%'; draw(); };
+    $('#cx_rng').oninput = e => { offX = +e.target.value; draw(); };
+    $('#cy_rng').oninput = e => { offY = +e.target.value; draw(); };
+    $('#crop_ok').onclick = async () => {
+      const out = document.createElement('canvas');
+      out.width = 300; out.height = 300;
+      out.getContext('2d').drawImage(cv, 0, 0, 300, 300);
+      modal('');
+      await onDone(out.toDataURL('image/jpeg', 0.88));
+    };
+  };
+  img.src = URL.createObjectURL(fl);
 }
 
 function openInfoProfile() {
@@ -828,14 +919,15 @@ function vWeb() {
 const shrink = (fl, w = 256, h = 256) => new Promise(r => {
   const i = new Image();
   i.onload = () => {
+    const box = trimBlackBars(i);
     const c = document.createElement('canvas');
     c.width = w;
     c.height = h;
-    const scale = Math.max(w / i.width, h / i.height);
+    const scale = Math.max(w / box.sw, h / box.sh);
     const sw = w / scale;
     const sh = h / scale;
-    const sx = (i.width - sw) / 2;
-    const sy = Math.max(0, (i.height - sh) * 0.25);
+    const sx = box.sx + (box.sw - sw) / 2;
+    const sy = box.sy + Math.max(0, (box.sh - sh) * 0.25);
     c.getContext('2d').drawImage(i, sx, sy, sw, sh, 0, 0, w, h);
     r(c.toDataURL('image/jpeg', .85));
   };
