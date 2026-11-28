@@ -337,26 +337,13 @@ const ROUTES = {
       if (!m.aktif) throw new HttpError(403, 'Akun Anda dinonaktifkan, hubungi pelatih');
       return sessionOut('murid', m.id);
     }
-    throw bad('Peran tidak valid');
-  },
-
-  'POST /api/register'(req, a, b) {
-    guard(req);
-    if (b.role === 'pelatih') {
-      const nama = str(b.nama, 100), pw = String(b.password || '');
-      if (!nama) throw bad('Nama wajib diisi');
-      if (!pw) throw bad('Kata sandi wajib diisi');
-      const ex = get('SELECT id FROM staff WHERE lower(nama)=lower(?)', nama);
-      if (ex) throw new HttpError(409, 'Nama pelatih sudah terdaftar, silakan masuk');
-      const id = 'p' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex');
-      run('INSERT INTO staff(id,nama,pass_hash) VALUES(?,?,?)', id, nama, hashPw(pw));
-      return sessionOut('pelatih', id);
-    }
-    const nama = str(b.nama, 100), pw = String(b.password || ''), wilayahNama = str(b.wilayah, 100), noAnggota = str(b.noAnggota, 30), telp = str(b.telp, 30), jk = str(b.jk, 20), sabuk = str(b.sabuk, 30);
+    const nama = str(b.nama, 100), pw = String(b.password || ''), wilayahNama = str(b.wilayah, 100), cabangNama = str(b.cabang, 100), unitNama = str(b.unit, 100), noAnggota = str(b.noAnggota, 30), telp = str(b.telp, 30), jk = str(b.jk, 20), sabuk = str(b.sabuk, 30);
     if (!nama) throw bad('Nama wajib diisi');
     if (!jk) throw bad('Jenis kelamin wajib diisi');
     if (!telp) throw bad('Nomor telepon wajib diisi');
     if (!wilayahNama) throw bad('Nama wilayah wajib diisi');
+    if (!cabangNama) throw bad('Nama cabang wajib diisi');
+    if (!unitNama) throw bad('Nama unit latihan wajib diisi');
     if (!sabuk) throw bad('Tingkatan sabuk wajib diisi');
     if (!noAnggota) throw bad('Nomor anggota wajib diisi');
     if (!pw) throw bad('Kata sandi wajib diisi');
@@ -369,14 +356,67 @@ const ROUTES = {
       if (!w) {
         const wid = 'w' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex');
         run('INSERT INTO wilayah(id,nama) VALUES(?,?)', wid, wilayahNama);
+        w = { id: wid };
       }
-      saveMurid(id, { nama, noAnggota, jk, telp, sabuk, password: pw });
+      let c = get('SELECT id FROM cabang WHERE lower(nama)=lower(?) AND wilayah_id=?', cabangNama, w.id);
+      if (!c) {
+        const cid = 'c' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex');
+        run('INSERT INTO cabang(id,nama,wilayah_id) VALUES(?,?,?)', cid, cabangNama, w.id);
+        c = { id: cid };
+      }
+      let u = get('SELECT id FROM unit WHERE lower(nama)=lower(?) AND cabang_id=?', unitNama, c.id);
+      if (!u) {
+        const uidNew = 'u' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex');
+        run('INSERT INTO unit(id,nama,lokasi,cabang_id) VALUES(?,?,?,?)', uidNew, unitNama, '', c.id);
+        u = { id: uidNew };
+      }
+      saveMurid(id, { nama, noAnggota, jk, telp, sabuk, unit: u.id, password: pw });
     });
     return sessionOut('murid', id);
   },
 
   'GET /api/me'(req, a) { need(a); return { uid: a.uid, role: a.role }; },
   'GET /api/data'(req, a) { need(a); return { S: buildS(a) }; },
+  'GET /api/backup'(req, a) {
+    need(a, 'pelatih');
+    return {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      tables: {
+        kv: all('SELECT * FROM kv'),
+        wilayah: all('SELECT * FROM wilayah'),
+        cabang: all('SELECT * FROM cabang'),
+        unit: all('SELECT * FROM unit'),
+        staff: all('SELECT * FROM staff'),
+        murid: all('SELECT * FROM murid'),
+        sabuk_riwayat: all('SELECT * FROM sabuk_riwayat'),
+        sesi: all('SELECT * FROM sesi'),
+        absen: all('SELECT * FROM absen'),
+        materi: all('SELECT * FROM materi'),
+        nilai: all('SELECT * FROM nilai'),
+        nilai_skor: all('SELECT * FROM nilai_skor'),
+      }
+    };
+  },
+  'POST /api/restore'(req, a, b) {
+    need(a, 'pelatih');
+    const t = b?.tables;
+    if (!t || typeof t !== 'object') throw bad('File backup tidak valid');
+    tx(() => {
+      for (const r of (t.kv || [])) run('INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v', r.k, r.v);
+      for (const r of (t.wilayah || [])) run('INSERT INTO wilayah(id,nama) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET nama=excluded.nama', r.id, r.nama);
+      for (const r of (t.cabang || [])) run('INSERT INTO cabang(id,nama,wilayah_id) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET nama=excluded.nama,wilayah_id=excluded.wilayah_id', r.id, r.nama, r.wilayah_id);
+      for (const r of (t.unit || [])) run('INSERT INTO unit(id,nama,lokasi,cabang_id) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET nama=excluded.nama,lokasi=excluded.lokasi,cabang_id=excluded.cabang_id', r.id, r.nama, r.lokasi || '', r.cabang_id);
+      for (const r of (t.staff || [])) run('INSERT INTO staff(id,nama,wilayah_id,pass_hash) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET nama=excluded.nama,wilayah_id=excluded.wilayah_id,pass_hash=COALESCE(excluded.pass_hash,staff.pass_hash)', r.id, r.nama, r.wilayah_id || null, r.pass_hash || null);
+      for (const r of (t.murid || [])) run('INSERT INTO murid(id,no_anggota,nama,jk,telp,tgl_gabung,aktif,sabuk,unit_id,foto,pass_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET no_anggota=excluded.no_anggota,nama=excluded.nama,jk=excluded.jk,telp=excluded.telp,tgl_gabung=excluded.tgl_gabung,aktif=excluded.aktif,sabuk=excluded.sabuk,unit_id=excluded.unit_id,foto=excluded.foto,pass_hash=COALESCE(excluded.pass_hash,murid.pass_hash)', r.id, r.no_anggota, r.nama, r.jk, r.telp || '', r.tgl_gabung || '', r.aktif ?? 1, r.sabuk || 'putih', r.unit_id || null, r.foto || '', r.pass_hash || null);
+      for (const r of (t.sesi || [])) run('INSERT INTO sesi(id,tgl,materi,pelatih,unit_id) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET tgl=excluded.tgl,materi=excluded.materi,pelatih=excluded.pelatih,unit_id=excluded.unit_id', r.id, r.tgl, r.materi, r.pelatih || '', r.unit_id || null);
+      for (const r of (t.absen || [])) run('INSERT INTO absen(sesi_id,murid_id,status,updated_at) VALUES(?,?,?,?) ON CONFLICT(sesi_id,murid_id) DO UPDATE SET status=excluded.status,updated_at=excluded.updated_at', r.sesi_id, r.murid_id, r.status, r.updated_at || '');
+      for (const r of (t.materi || [])) run('INSERT INTO materi(id,kategori,nama,urut) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET kategori=excluded.kategori,nama=excluded.nama,urut=excluded.urut', r.id, r.kategori, r.nama, r.urut || 0);
+      for (const r of (t.nilai || [])) run('INSERT INTO nilai(sesi_id,murid_id,catatan,oleh,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(sesi_id,murid_id) DO UPDATE SET catatan=excluded.catatan,oleh=excluded.oleh,updated_at=excluded.updated_at', r.sesi_id, r.murid_id, r.catatan || '', r.oleh || '', r.updated_at || '');
+      for (const r of (t.nilai_skor || [])) run('INSERT INTO nilai_skor(sesi_id,murid_id,materi_id,skor) VALUES(?,?,?,?) ON CONFLICT(sesi_id,murid_id,materi_id) DO UPDATE SET skor=excluded.skor', r.sesi_id, r.murid_id, r.materi_id, r.skor);
+    });
+    return { ok: true };
+  },
   'POST /api/set'(req, a, b) {
     need(a);
     const [col, key] = parsePath(b.path);
