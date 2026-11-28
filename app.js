@@ -802,6 +802,22 @@ async function saveAccountPassword() {
   toast('Kata sandi berhasil diperbarui');
 }
 
+function vWeb() {
+  const s = site();
+  return `<h2>Ubah Website</h2>
+  <div class="card">
+    <label class="m">Nama Website</label>
+    <input id="wn" value="${E(s.nama)}">
+    <label class="m">Subjudul / Tagline</label>
+    <input id="wt" value="${E(s.tag)}">
+    <label class="m">Teks Sambutan</label>
+    <textarea id="ws" rows="3">${E(s.sambutan)}</textarea>
+    <label class="m">Logo Perguruan (opsional)</label>
+    <input id="wl" type="file" accept="image/*">
+    <div class="btns"><button class="b p" onclick="saveWeb()">Simpan Perubahan</button></div>
+  </div>`;
+}
+
 const shrink = (fl, w = 256, h = 256) => new Promise(r => { const i = new Image(); i.onload = () => { const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(i, 0, 0, w, h); r(c.toDataURL('image/jpeg', .85)); }; i.src = URL.createObjectURL(fl); });
 async function saveWeb() { const o = { nama: v('wn').trim(), tag: v('wt').trim(), sambutan: v('ws').trim(), logo: S.cfg.main?.site?.logo || '' }; const fl = $('#wl').files[0]; if (fl) o.logo = await shrink(fl); await save('cfg/main', { ...(S.cfg.main || {}), site: o }); toast('Tersimpan'); }
 
