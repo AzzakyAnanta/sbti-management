@@ -430,22 +430,28 @@ function rptHTML(u, p) {
   const daftarStaff = Object.values(S.staff || {});
   const pelatihWilayah = (wId && daftarStaff.find(st => st.wilayah === wId)?.nama) || daftarStaff[0]?.nama;
   const namaPelatih = (role === 'pelatih' ? S.staff[uid]?.nama : '') || nilaiMurid || pelatihSesi || pelatihUnitLain || pelatihWilayah || '-';
+  const isMob = window.innerWidth <= 640;
+  const fw = isMob ? 84 : 112, fh = isMob ? 112 : 148;
   const fotoBox = m.foto
-    ? `<img src="${m.foto}" alt="Foto ${E(m.nama)}" style="width:112px;height:148px;object-fit:cover;object-position:center 20%;border:1.5px solid #cbd5e1;border-radius:6px;display:block">`
-    : `<div style="width:112px;height:148px;border:1.5px dashed #94a3b8;border-radius:6px;display:flex;align-items:center;justify-content:center;text-align:center;color:#64748b;font-size:11.5px;padding:6px;background:#f8fafc">Pas Foto<br>3x4</div>`;
-  return `<div class="rpt"><img class="lg" src="${site().logo}"><h2>${E(site().nama)}</h2><p class="m">Raport Penilaian Bulanan · Periode ${fm(p)}</p>
-    <div style="display:flex;gap:36px;align-items:flex-start;justify-content:space-between;max-width:760px;margin:0 auto 18px">
-      <table style="flex:1;max-width:560px;margin-bottom:0">
-        <tr><td width="34%">Nama</td><td><b>${E(m.nama)}</b></td></tr>
+    ? `<img src="${m.foto}" alt="Foto ${E(m.nama)}" style="width:${fw}px;height:${fh}px;object-fit:cover;object-position:center 20%;border:1.5px solid #cbd5e1;border-radius:6px;display:block">`
+    : `<div style="width:${fw}px;height:${fh}px;border:1.5px dashed #94a3b8;border-radius:6px;display:flex;align-items:center;justify-content:center;text-align:center;color:#64748b;font-size:11px;padding:4px;background:#f8fafc">Pas Foto<br>3x4</div>`;
+  return `<div class="rpt" style="overflow:hidden"><img class="lg" src="${site().logo}"><h2>${E(site().nama)}</h2><p class="m">Raport Penilaian Bulanan · Periode ${fm(p)}</p>
+    <div style="display:flex;gap:${isMob ? 12 : 36}px;align-items:flex-start;justify-content:space-between;max-width:760px;margin:0 auto 18px">
+      <table style="flex:1;min-width:0;max-width:560px;margin-bottom:0;font-size:${isMob ? 12.5 : 14}px">
+        <tr><td width="36%">Nama</td><td style="word-break:break-word"><b>${E(m.nama)}</b></td></tr>
         <tr><td>No. Anggota</td><td>${E(m.noAnggota)}</td></tr>
         <tr><td>Sabuk</td><td>${E(sabukNama(m.sabuk))}</td></tr>
-        <tr><td>Unit Latihan</td><td>${E(unitLabel(m.unit))}</td></tr>
-        <tr><td>Nama Pelatih</td><td>${E(namaPelatih)}</td></tr>
+        <tr><td>Unit Latihan</td><td style="word-break:break-word">${E(unitLabel(m.unit))}</td></tr>
+        <tr><td>Nama Pelatih</td><td style="word-break:break-word">${E(namaPelatih)}</td></tr>
       </table>
       <div style="flex-shrink:0;padding-top:4px">${fotoBox}</div>
     </div>
-    <table><tr><th>Total latihan</th><th>Hadir</th><th>Izin</th><th>Sakit</th><th>Alpha</th><th>Kehadiran</th></tr><tr><td>${r.tot}</td><td>${r.c.hadir}</td><td>${r.c.izin}</td><td>${r.c.sakit}</td><td>${r.c.alpha}</td><td>${f(r.pct)}%</td></tr></table>
-    <table><tr><th>Materi</th><th>Jumlah penilaian</th><th>Rata-rata</th></tr>${r.mats.map(x => `<tr><td>${E(x.m)}</td><td>${x.n}</td><td>${f(x.r)}</td></tr>`).join('') || '<tr><td colspan="3">Belum ada nilai pada periode ini</td></tr>'}<tr><th colspan="2">Rata-rata keseluruhan</th><th>${f(r.all)}</th></tr></table>
+    <div style="width:100%;overflow-x:auto">
+      <table style="font-size:${isMob ? 11.5 : 14}px"><tr><th>Total</th><th>Hadir</th><th>Izin</th><th>Sakit</th><th>Alpha</th><th>Kehadiran</th></tr><tr><td>${r.tot}</td><td>${r.c.hadir}</td><td>${r.c.izin}</td><td>${r.c.sakit}</td><td>${r.c.alpha}</td><td>${f(r.pct)}%</td></tr></table>
+    </div>
+    <div style="width:100%;overflow-x:auto">
+      <table style="font-size:${isMob ? 12 : 14}px"><tr><th>Materi</th><th>Jumlah penilaian</th><th>Rata-rata</th></tr>${r.mats.map(x => `<tr><td>${E(x.m)}</td><td>${x.n}</td><td>${f(x.r)}</td></tr>`).join('') || '<tr><td colspan="3">Belum ada nilai pada periode ini</td></tr>'}<tr><th colspan="2">Rata-rata keseluruhan</th><th>${f(r.all)}</th></tr></table>
+    </div>
     <b>Catatan pelatih</b>${r.cat.length ? r.cat.map(c => `<p style="margin:4px 0">${fd(c[0])} · ${E(c[1])}: ${E(c[2])}</p>`).join('') : '<p>-</p>'}
   </div>`;
 }
@@ -729,11 +735,12 @@ function vProfil() {
 
 function openAvatarMenu() {
   const u = (role === 'murid' ? S.murid[uid] : S.staff[uid]) || {};
+  const hasFoto = !!u.foto;
   modal(`
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
       <button class="b" style="padding:4px 10px" onclick="modal('')">✕</button>
       <b style="font-size:16px">Foto profil</b>
-      ${u.foto ? `<button class="b d" style="padding:4px 10px" onclick="removeAvatar()" title="Hapus foto profil">🗑️</button>` : `<span style="width:34px"></span>`}
+      <button class="b d" style="padding:4px 10px;opacity:${hasFoto ? '1' : '0.45'}" onclick="${hasFoto ? 'removeAvatar()' : "toast('Belum ada foto profil untuk dihapus')"}" title="Hapus foto profil">🗑️</button>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px">
       <div onclick="modal('');$('#av_cam').click()" style="display:flex;align-items:center;gap:14px;padding:12px 14px;border-radius:12px;background:var(--bg);border:1px solid var(--l);cursor:pointer">
@@ -744,10 +751,10 @@ function openAvatarMenu() {
         <span style="width:38px;height:38px;border-radius:50%;background:rgba(70,176,248,.16);color:#46b0f8;display:flex;align-items:center;justify-content:center;font-size:18px">🖼️</span>
         <div><b>Galeri</b><div class="m" style="font-size:12px">Pilih foto dari penyimpanan perangkat</div></div>
       </div>
-      ${u.foto ? `<div onclick="openPhotoCropper('${u.foto}',async f=>{await save((role==='murid'?'murid/':'staff/')+uid,{foto:f});toast('Foto profil diperbarui')})" style="display:flex;align-items:center;gap:14px;padding:12px 14px;border-radius:12px;background:var(--bg);border:1px solid var(--l);cursor:pointer">
+      <div onclick="${hasFoto ? `openPhotoCropper('${u.foto}',async f=>{await save((role==='murid'?'murid/':'staff/')+uid,{foto:f});toast('Foto profil diperbarui')})` : "toast('Pilih foto dari Kamera atau Galeri terlebih dahulu')"}" style="display:flex;align-items:center;gap:14px;padding:12px 14px;border-radius:12px;background:var(--bg);border:1px solid var(--l);cursor:pointer;opacity:${hasFoto ? '1' : '0.6'}">
         <span style="width:38px;height:38px;border-radius:50%;background:rgba(70,176,248,.16);color:#46b0f8;display:flex;align-items:center;justify-content:center;font-size:18px">✂️</span>
         <div><b>Sesuaikan Foto</b><div class="m" style="font-size:12px">Geser, potong, atau putar foto saat ini</div></div>
-      </div>` : ''}
+      </div>
     </div>
   `);
 }
