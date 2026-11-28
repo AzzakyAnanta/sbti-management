@@ -84,6 +84,7 @@ const kvDel = k => run('DELETE FROM kv WHERE k=?', k);
 try { db.exec('ALTER TABLE staff ADD COLUMN pass_hash TEXT'); } catch {}
 try { db.exec("ALTER TABLE staff ADD COLUMN telp TEXT NOT NULL DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE staff ADD COLUMN foto TEXT NOT NULL DEFAULT ''"); } catch {}
+try { db.exec("ALTER TABLE sesi ADD COLUMN jam TEXT NOT NULL DEFAULT ''"); } catch {}
 if (!kvGet('kode')) kvSet('kode', DEFAULT_KODE_PELATIH);
 
 function struktur() {
@@ -114,7 +115,7 @@ function buildS(a) {
   };
 
   for (const r of all('SELECT * FROM sesi ORDER BY tgl DESC,id DESC'))
-    S.sesi[r.id] = { tgl: r.tgl, materi: r.materi, pelatih: r.pelatih, unit: r.unit_id || '' };
+    S.sesi[r.id] = { tgl: r.tgl, jam: r.jam || '', materi: r.materi, pelatih: r.pelatih, unit: r.unit_id || '' };
 
   const own = staff ? [] : [a.uid];
   for (const r of staff ? all('SELECT * FROM absen') : all('SELECT * FROM absen WHERE murid_id=?', ...own))
@@ -212,13 +213,13 @@ const SET = {
 
   sesi(a, key, d) {
     need(a, 'pelatih');
-    const materi = str(d.materi, 200), tgl = str(d.tgl, 20);
+    const materi = str(d.materi, 200), tgl = str(d.tgl, 20), jam = str(d.jam, 30);
     if (!materi || !dateOk.test(tgl)) throw bad('Tanggal dan materi latihan wajib valid');
     const unit = str(d.unit, 64) || null;
     if (unit && !refs('unit', unit)) throw bad('Unit latihan tidak ditemukan');
     const pelaku = str(d.pelatih, 100) || get('SELECT nama FROM staff WHERE id=?', a.uid)?.nama || '';
-    run('INSERT INTO sesi(id,tgl,materi,pelatih,unit_id) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET tgl=excluded.tgl,materi=excluded.materi,pelatih=excluded.pelatih,unit_id=excluded.unit_id',
-      key, tgl, materi, pelaku, unit);
+    run('INSERT INTO sesi(id,tgl,jam,materi,pelatih,unit_id) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET tgl=excluded.tgl,jam=excluded.jam,materi=excluded.materi,pelatih=excluded.pelatih,unit_id=excluded.unit_id',
+      key, tgl, jam, materi, pelaku, unit);
   },
 
   absen(a, key, d) {
@@ -428,7 +429,7 @@ const ROUTES = {
       for (const r of (b.staff || [])) run('INSERT OR IGNORE INTO staff(id,nama,wilayah_id,telp,foto,pass_hash) VALUES(?,?,?,?,?,?)', r.id, r.nama, r.wilayah_id || null, r.telp || '', r.foto || '', r.pass_hash || null);
       for (const r of (b.murid || [])) run('INSERT INTO murid(id,no_anggota,nama,jk,telp,tgl_gabung,aktif,sabuk,unit_id,foto,pass_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?)', r.id, r.no_anggota, r.nama, r.jk || 'Laki-laki', r.telp || '', r.tgl_gabung || '', r.aktif ?? 1, r.sabuk || 'putih', r.unit_id || null, r.foto || '', r.pass_hash || null);
       for (const r of (b.sabuk_riwayat || [])) run('INSERT INTO sabuk_riwayat(murid_id,sabuk,tgl) VALUES(?,?,?)', r.murid_id, r.sabuk, r.tgl);
-      for (const r of (b.sesi || [])) run('INSERT INTO sesi(id,tgl,materi,pelatih,unit_id) VALUES(?,?,?,?,?)', r.id, r.tgl, r.materi, r.pelatih || '', r.unit_id || null);
+      for (const r of (b.sesi || [])) run('INSERT INTO sesi(id,tgl,jam,materi,pelatih,unit_id) VALUES(?,?,?,?,?,?)', r.id, r.tgl, r.jam || '', r.materi, r.pelatih || '', r.unit_id || null);
       for (const r of (b.absen || [])) run('INSERT INTO absen(sesi_id,murid_id,status,updated_at) VALUES(?,?,?,?)', r.sesi_id, r.murid_id, r.status, r.updated_at || '');
       if (Array.isArray(b.materi) && b.materi.length) {
         run('DELETE FROM materi');
