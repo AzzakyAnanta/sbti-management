@@ -41,6 +41,7 @@ let S = { wilayah: {}, cabang: {}, unit: {}, murid: {}, staff: {}, sesi: {}, abs
 let PUB = { wilayah: {}, cabang: {}, unit: {}, site: {} };
 let F = { w: '', c: '', u: '' };
 let R = { p: today().slice(0, 7), mode: 'ind', u: '' };
+let absDate = today(), calModalMonth = today().slice(0, 7);
 
 const toast = t => {
   const e = $('#toast');
@@ -470,14 +471,156 @@ async function uploadMyFoto(fl) {
   toast('Foto raport diperbarui');
 }
 
+function addDays(iso, d) {
+  const dt = new Date(iso + 'T00:00:00');
+  dt.setDate(dt.getDate() + d);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+
+function setAbsDate(iso) {
+  absDate = iso;
+  calModalMonth = iso.slice(0, 7);
+  render();
+}
+
+function openCalModal() {
+  calModalMonth = absDate.slice(0, 7);
+  renderCalModal();
+}
+
+function shiftCalMonth(delta) {
+  const [y, m] = calModalMonth.split('-').map(Number);
+  const dt = new Date(y, m - 1 + delta, 1);
+  calModalMonth = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+  renderCalModal();
+}
+
+function downloadICS() {
+  const me = S.murid[uid] || {};
+  const list = Object.entries(S.sesi || {}).map(([id, s]) => ({ id, ...s }))
+    .filter(s => ym(s.tgl) === calModalMonth && (!s.unit || s.unit === me.unit));
+  if (!list.length) return toast('Tidak ada jadwal latihan pada bulan ini');
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//SBTI Management//ID'];
+  list.forEach(s => {
+    const d = s.tgl.replace(/-/g, '');
+    lines.push('BEGIN:VEVENT', `UID:${s.id}@sbti`, `DTSTART;VALUE=DATE:${d}`, `DTEND;VALUE=DATE:${d}`, `SUMMARY:Latihan SBTI - ${s.materi}`, `DESCRIPTION:Unit: ${unitLabel(me.unit)}`, 'END:VEVENT');
+  });
+  lines.push('END:VCALENDAR');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([lines.join('\r\n')], { type: 'text/calendar;charset=utf-8' }));
+  a.download = `jadwal-latihan-sbti-${calModalMonth}.ics`;
+  a.click();
+  toast('File jadwal (.ics) diunduh, buka untuk simpan ke Google Calendar');
+}
+
+function renderCalModal() {
+  const me = S.murid[uid] || {};
+  const sesiDates = new Set(Object.values(S.sesi || {}).filter(s => !s.unit || s.unit === me.unit).map(s => s.tgl));
+  const [y, m] = calModalMonth.split('-').map(Number);
+  const firstDay = new Date(y, m - 1, 1).getDay();
+  const offset = (firstDay + 6) % 7;
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const hariHdr = ['SEN', 'SEL', 'RAB', 'KAM', 'JUM', 'SAB', 'MIN'];
+  let cells = '';
+  for (let i = 0; i < offset; i++) cells += '<div></div>';
+  for (let d = 1; d <= daysInMonth; d++) {
+    const iso = `${calModalMonth}-${String(d).padStart(2, '0')}`;
+    const isSel = iso === absDate;
+    const isTod = iso === today();
+    const hasSesi = sesiDates.has(iso);
+    cells += `<button onclick="setAbsDate('${iso}');modal('')" style="border:${isTod && !isSel ? '1px solid #46b0f8' : 'none'};background:${isSel ? '#46b0f8' : 'transparent'};color:${isSel ? '#061529' : '#e2e8f0'};font-weight:${isSel || isTod ? '700' : '500'};border-radius:10px;padding:9px 0;cursor:pointer;position:relative;font-size:14px">
+      ${d}
+      ${hasSesi ? `<span style="position:absolute;bottom:3px;left:50%;transform:translateX(-50%);width:5px;height:5px;border-radius:50%;background:${isSel ? '#061529' : '#46b0f8'}"></span>` : ''}
+    </button>`;
+  }
+  modal(`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <h3 style="margin:0">Pilih Tanggal</h3>
+      <div style="display:flex;gap:12px;align-items:center">
+        <a href="#" onclick="setAbsDate('${today()}');modal('');return false" style="color:#46b0f8;font-weight:700;text-decoration:none;font-size:14px">Hari Ini</a>
+        <button class="b" style="padding:4px 10px" onclick="modal('')">✕</button>
+      </div>
+    </div>
+    <div onclick="downloadICS()" style="display:flex;align-items:center;gap:14px;padding:12px 14px;border:1px solid var(--l);border-radius:12px;background:var(--bg);cursor:pointer;margin-bottom:16px">
+      <div style="width:46px;height:46px;border-radius:12px;background:rgba(70,176,248,.16);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">📅</div>
+      <div>
+        <div style="font-weight:700;font-size:14px">Sync Google Calendar</div>
+        <div class="m" style="font-size:12px;margin-top:2px">Simpan jadwal latihan bulan ini ke kalender perangkat Anda</div>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <button class="b" style="padding:6px 12px" onclick="shiftCalMonth(-1)">‹</button>
+      <b style="font-size:15px">${fm(calModalMonth)}</b>
+      <button class="b" style="padding:6px 12px" onclick="shiftCalMonth(1)">›</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center;margin-bottom:6px">
+      ${hariHdr.map(h => `<span class="m" style="font-size:11px;font-weight:700">${h}</span>`).join('')}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center">${cells}</div>
+  `);
+}
+
 function vAbsen() {
   const me = S.murid[uid] || {};
-  const ss = Object.entries(S.sesi || {}).map(([id, s]) => ({ id, ...s })).filter(s => s.tgl === today() && (!s.unit || s.unit === me.unit));
-  return `<h2>Absen Latihan</h2><div class="card"><b>${E(me.nama)}</b> · <span class="m">Sabuk ${E(sabukNama(me.sabuk))} · ${E(unitLabel(me.unit))}</span></div>
-  ${ss.map(s => {
+  const allMySesi = Object.entries(S.sesi || {}).map(([id, s]) => ({ id, ...s })).filter(s => !s.unit || s.unit === me.unit);
+  const sesiDates = new Set(allMySesi.map(s => s.tgl));
+  const ss = allMySesi.filter(s => s.tgl === absDate);
+  const hariSingkat = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+  const weekDays = [-3, -2, -1, 0, 1, 2, 3].map(offset => {
+    const iso = addDays(absDate, offset);
+    const dt = new Date(iso + 'T00:00:00');
+    return { iso, dayName: hariSingkat[dt.getDay()], dateNum: dt.getDate() };
+  });
+  const isToday = absDate === today();
+
+  return `<h2>Absen Latihan</h2>
+  <div class="card"><b>${E(me.nama)}</b> · <span class="m">Sabuk ${E(sabukNama(me.sabuk))} · ${E(unitLabel(me.unit))}</span></div>
+  <div class="card" style="padding:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <button onclick="openCalModal()" style="background:none;border:none;color:inherit;font-size:16px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:0">
+        ${fm(absDate.slice(0, 7))} <span style="font-size:13px;opacity:.8">⌄</span>
+      </button>
+      <a href="#" onclick="setAbsDate('${today()}');return false" style="color:#46b0f8;font-weight:700;text-decoration:none;font-size:14px">Hari Ini</a>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;text-align:center">
+      ${weekDays.map(w => {
+        const active = w.iso === absDate;
+        const hasJadwal = sesiDates.has(w.iso);
+        return `<div onclick="setAbsDate('${w.iso}')" style="cursor:pointer;padding:10px 4px;border-radius:12px;background:${active ? '#46b0f8' : 'transparent'};color:${active ? '#061529' : 'inherit'};transition:.15s">
+          <div style="font-size:12px;opacity:${active ? '0.9' : '0.65'};margin-bottom:6px;font-weight:600">${w.dayName}</div>
+          <div style="font-size:16px;font-weight:700">${w.dateNum}</div>
+          <div style="height:6px;margin-top:4px;display:flex;justify-content:center;align-items:center">
+            ${hasJadwal ? `<span style="width:5px;height:5px;border-radius:50%;background:${active ? '#061529' : '#46b0f8'}"></span>` : ''}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>
+  ${ss.length ? ss.map(s => {
     const ab = S.absen[s.id + '_' + uid], a = ab?.status;
-    return `<div class="card"><b>${E(s.materi)}</b><div class="m">${fd(s.tgl)}</div><div class="btns">${['hadir', 'izin', 'sakit'].map(k => `<button class="b ${a === k ? 'on' : ''}" onclick="save('absen/${s.id}_${uid}',{sesi:'${s.id}',uid:'${uid}',status:'${k}'})">${cap(k)}</button>`).join('')}</div>${a ? `<p class="m">Status Anda: <b>${cap(a)}</b></p>` : ''}</div>`;
-  }).join('') || '<div class="card">Belum ada latihan hari ini.</div>'}`;
+    return `<div class="card"><b>${E(s.materi)}</b><div class="m">${fdShort(s.tgl)}</div>
+      ${isToday
+        ? `<div class="btns">${['hadir', 'izin', 'sakit'].map(k => `<button class="b ${a === k ? 'on' : ''}" onclick="save('absen/${s.id}_${uid}',{sesi:'${s.id}',uid:'${uid}',status:'${k}'})">${cap(k)}</button>`).join('')}</div>`
+        : `<p class="m" style="margin-bottom:0">Absensi mandiri hanya dibuka pada hari latihan berlangsung.</p>`}
+      ${a ? `<p class="m" style="margin-bottom:0">Status Anda: <b>${cap(a)}</b></p>` : ''}
+    </div>`;
+  }).join('') : `<div class="card" style="text-align:center;padding:42px 16px">
+    <svg width="84" height="84" viewBox="0 0 84 84" fill="none" style="margin:0 auto 12px;display:block">
+      <circle cx="42" cy="42" r="36" fill="#46b0f8" fill-opacity="0.10"/>
+      <rect x="20" y="22" width="44" height="38" rx="7" fill="#132c4e" stroke="#46b0f8" stroke-width="2"/>
+      <path d="M20 31C20 26.5817 23.5817 23 28 23H56C60.4183 23 64 26.5817 64 31V34H20V31Z" fill="#46b0f8" fill-opacity="0.35"/>
+      <line x1="31" y1="18" x2="31" y2="26" stroke="#46b0f8" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="53" y1="18" x2="53" y2="26" stroke="#46b0f8" stroke-width="2.5" stroke-linecap="round"/>
+      <rect x="28" y="40" width="6" height="6" rx="1.5" fill="#46b0f8" fill-opacity="0.45"/>
+      <rect x="39" y="40" width="6" height="6" rx="1.5" fill="#46b0f8" fill-opacity="0.45"/>
+      <rect x="50" y="40" width="6" height="6" rx="1.5" fill="#46b0f8" fill-opacity="0.45"/>
+      <rect x="28" y="49" width="6" height="6" rx="1.5" fill="#46b0f8" fill-opacity="0.45"/>
+      <circle cx="24" cy="56" r="11" fill="#0b1d36" stroke="#46b0f8" stroke-width="2"/>
+      <path d="M24 51V56.5L27.5 58.5" stroke="#46b0f8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div style="font-weight:600;font-size:15px">Tidak ada jadwal di tanggal ini</div>
+    <div class="m" style="font-size:13px;margin-top:4px">${fdShort(absDate)}</div>
+  </div>`}`;
 }
 
 function vMateri() {
