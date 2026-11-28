@@ -198,6 +198,8 @@ function authHTML() {
   if (tab === 'murid') {
     if (mode === 'daftar') {
       const ws = listWilayah(PUB);
+      const cs = listCabang('', PUB);
+      const us = listUnit('', '', PUB);
       c = `
         <input id="rn" placeholder="Nama lengkap *" value="${E(v('rn'))}" required>
         <select id="rj">
@@ -207,6 +209,10 @@ function authHTML() {
         <input id="rt" placeholder="Nomor telepon *" value="${E(v('rt'))}" required>
         <input id="rw" list="wilayah-suggest" placeholder="Wilayah (mis. Tangerang Kota / Jakarta Barat) *" value="${E(v('rw'))}" required>
         <datalist id="wilayah-suggest">${ws.map(w => `<option value="${E(w.nama)}">`).join('')}</datalist>
+        <input id="rc" list="cabang-suggest" placeholder="Cabang *" value="${E(v('rc'))}" required>
+        <datalist id="cabang-suggest">${cs.map(cb => `<option value="${E(cb.nama)}">`).join('')}</datalist>
+        <input id="ru" list="unit-suggest" placeholder="Unit latihan *" value="${E(v('ru'))}" required>
+        <datalist id="unit-suggest">${us.map(u => `<option value="${E(u.nama)}">`).join('')}</datalist>
         <select id="rs">${SABUK_LIST.map(sb => `<option value="${sb.id}" ${v('rs') === sb.id ? 'selected' : ''}>Sabuk ${E(sb.nama)}</option>`).join('')}</select>
         <input id="ro" placeholder="No. Anggota (contoh: SBTI-001) *" value="${E(v('ro'))}" required>
         <input id="rp" type="password" placeholder="Buat kata sandi *" required>
@@ -481,7 +487,36 @@ function vAtur() {
   return `<h2>Pengaturan</h2>
   <div class="card"><h3 style="margin-top:0">Profil pelatih</h3><div class="row"><input id="nm" value="${E(S.staff[uid]?.nama || '')}"><button class="b p" onclick="save('staff/${uid}',{...S.staff['${uid}'],nama:v('nm').trim()})">Simpan</button></div></div>
   <div class="card"><h3 style="margin-top:0">Kode akses pelatih</h3><div class="row"><input id="kd" value="${E(S.cfg.main?.kode)}"><button class="b p" onclick="save('cfg/main',{...(S.cfg.main||{}),kode:v('kd').trim()});toast('Tersimpan')">Simpan</button></div></div>
+  <div class="card"><h3 style="margin-top:0">Cadangan Data (Backup & Restore)</h3>
+    <p class="m" style="margin-top:0">Simpan salinan seluruh data Wilayah, Cabang, Unit, Anggota, Absensi & Nilai ke perangkat Anda.</p>
+    <div class="row">
+      <button class="b p" onclick="downloadBackup()">💾 Download Backup (.json)</button>
+      <label class="b" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">📂 Pulihkan dari Backup<input type="file" accept=".json,application/json" style="display:none" onchange="restoreBackup(this.files[0])"></label>
+    </div>
+  </div>
   <div class="card"><h3 style="margin-top:0">Daftar pelatih</h3>${st.map(([id, s]) => `<div class="row" style="justify-content:space-between">${E(s.nama)} <button class="b d" onclick="del('staff/${id}')">Hapus</button></div>`).join('') || '<p class="m">Belum ada pelatih.</p>'}</div>`;
+}
+
+async function downloadBackup() {
+  try {
+    const data = await API('backup');
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `sbti-backup-${today()}.json`;
+    a.click();
+    toast('File backup berhasil diunduh');
+  } catch (e) { toast(e.message); }
+}
+
+async function restoreBackup(fl) {
+  if (!fl) return;
+  try {
+    const json = JSON.parse(await fl.text());
+    await API('restore', { body: json });
+    await load(true);
+    toast('Seluruh data berhasil dipulihkan!');
+  } catch (e) { toast(e.message || 'Gagal membaca file backup'); }
 }
 
 function vWeb() {
@@ -516,6 +551,8 @@ async function daftar() {
     ['rj', 'Jenis kelamin wajib dipilih!'],
     ['rt', 'Nomor telepon wajib diisi!'],
     ['rw', 'Wilayah wajib diisi!'],
+    ['rc', 'Cabang wajib diisi!'],
+    ['ru', 'Unit latihan wajib diisi!'],
     ['rs', 'Tingkatan sabuk wajib dipilih!'],
     ['ro', 'Nomor anggota wajib diisi!'],
     ['rp', 'Kata sandi wajib diisi!']
@@ -533,6 +570,8 @@ async function daftar() {
         jk: v('rj').trim(),
         telp: v('rt').trim(),
         wilayah: v('rw').trim(),
+        cabang: v('rc').trim(),
+        unit: v('ru').trim(),
         sabuk: v('rs').trim(),
         noAnggota: v('ro').trim(),
         password: v('rp')
