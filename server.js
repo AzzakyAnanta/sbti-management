@@ -100,7 +100,7 @@ function buildS(a) {
     cfg: {}, meta: { sabuk: SABUK },
   };
 
-  if (staff) for (const r of all('SELECT * FROM staff ORDER BY nama COLLATE NOCASE'))
+  for (const r of all('SELECT * FROM staff ORDER BY nama COLLATE NOCASE'))
     S.staff[r.id] = { nama: r.nama, wilayah: r.wilayah_id || '' };
 
   const rw = {};
