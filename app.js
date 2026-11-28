@@ -686,11 +686,12 @@ function vProfil() {
 
   return `<h2>Profil Saya</h2>
   <div class="card" style="display:flex;align-items:center;gap:16px;padding:20px;flex-wrap:wrap">
-    <label style="position:relative;cursor:pointer;flex-shrink:0" title="Klik untuk ganti foto profil">
+    <div onclick="openAvatarMenu()" style="position:relative;cursor:pointer;flex-shrink:0" title="Klik untuk atur foto profil">
       ${avatar}
-      <span style="position:absolute;bottom:0;right:0;width:24px;height:24px;border-radius:50%;background:#46b0f8;color:#061529;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">📷</span>
-      <input type="file" accept="image/*" style="display:none" onchange="updateAvatar(this.files[0])">
-    </label>
+      <span style="position:absolute;bottom:0;right:0;width:26px;height:26px;border-radius:50%;background:#46b0f8;color:#061529;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,.35)">📷</span>
+    </div>
+    <input id="av_cam" type="file" accept="image/*" capture="user" style="display:none" onchange="updateAvatar(this.files[0]);this.value=''">
+    <input id="av_gal" type="file" accept="image/*" style="display:none" onchange="updateAvatar(this.files[0]);this.value=''">
     <div style="flex:1;min-width:180px">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <b style="font-size:18px">${E(u.nama || '-')}</b>
@@ -726,6 +727,37 @@ function vProfil() {
   </div>`;
 }
 
+function openAvatarMenu() {
+  const u = (role === 'murid' ? S.murid[uid] : S.staff[uid]) || {};
+  modal(`
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <button class="b" style="padding:4px 10px" onclick="modal('')">✕</button>
+      <b style="font-size:16px">Foto profil</b>
+      ${u.foto ? `<button class="b d" style="padding:4px 10px" onclick="removeAvatar()" title="Hapus foto profil">🗑️</button>` : `<span style="width:34px"></span>`}
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div onclick="modal('');$('#av_cam').click()" style="display:flex;align-items:center;gap:14px;padding:12px 14px;border-radius:12px;background:var(--bg);border:1px solid var(--l);cursor:pointer">
+        <span style="width:38px;height:38px;border-radius:50%;background:rgba(70,176,248,.16);color:#46b0f8;display:flex;align-items:center;justify-content:center;font-size:18px">📷</span>
+        <div><b>Kamera</b><div class="m" style="font-size:12px">Ambil foto langsung dari kamera</div></div>
+      </div>
+      <div onclick="modal('');$('#av_gal').click()" style="display:flex;align-items:center;gap:14px;padding:12px 14px;border-radius:12px;background:var(--bg);border:1px solid var(--l);cursor:pointer">
+        <span style="width:38px;height:38px;border-radius:50%;background:rgba(70,176,248,.16);color:#46b0f8;display:flex;align-items:center;justify-content:center;font-size:18px">🖼️</span>
+        <div><b>Galeri</b><div class="m" style="font-size:12px">Pilih foto dari penyimpanan perangkat</div></div>
+      </div>
+      ${u.foto ? `<div onclick="openPhotoCropper('${u.foto}',async f=>{await save((role==='murid'?'murid/':'staff/')+uid,{foto:f});toast('Foto profil diperbarui')})" style="display:flex;align-items:center;gap:14px;padding:12px 14px;border-radius:12px;background:var(--bg);border:1px solid var(--l);cursor:pointer">
+        <span style="width:38px;height:38px;border-radius:50%;background:rgba(70,176,248,.16);color:#46b0f8;display:flex;align-items:center;justify-content:center;font-size:18px">✂️</span>
+        <div><b>Sesuaikan Foto</b><div class="m" style="font-size:12px">Geser, potong, atau putar foto saat ini</div></div>
+      </div>` : ''}
+    </div>
+  `);
+}
+
+async function removeAvatar() {
+  await save((role === 'murid' ? 'murid/' : 'staff/') + uid, { foto: '' });
+  modal('');
+  toast('Foto profil dihapus');
+}
+
 async function updateAvatar(fl) {
   if (!fl) return;
   openPhotoCropper(fl, async (foto) => {
@@ -734,94 +766,191 @@ async function updateAvatar(fl) {
   });
 }
 
-function trimBlackBars(img) {
-  const tw = 240, th = Math.max(1, Math.round((img.height / img.width) * tw));
-  const tc = document.createElement('canvas');
-  tc.width = tw; tc.height = th;
-  const tctx = tc.getContext('2d');
-  tctx.drawImage(img, 0, 0, tw, th);
-  const { data } = tctx.getImageData(0, 0, tw, th);
-  const isDarkCol = x => {
-    let dark = 0;
-    for (let y = 0; y < th; y++) {
-      const idx = (y * tw + x) * 4;
-      if (data[idx] < 22 && data[idx + 1] < 22 && data[idx + 2] < 22) dark++;
-    }
-    return dark / th > 0.92;
-  };
-  const isDarkRow = y => {
-    let dark = 0;
-    for (let x = 0; x < tw; x++) {
-      const idx = (y * tw + x) * 4;
-      if (data[idx] < 22 && data[idx + 1] < 22 && data[idx + 2] < 22) dark++;
-    }
-    return dark / tw > 0.92;
-  };
-  let l = 0, r = tw - 1, t = 0, b = th - 1;
-  while (l < r - 10 && isDarkCol(l)) l++;
-  while (r > l + 10 && isDarkCol(r)) r--;
-  while (t < b - 10 && isDarkRow(t)) t++;
-  while (b > t + 10 && isDarkRow(b)) b--;
-  const sx = Math.round((l / tw) * img.width);
-  const sy = Math.round((t / th) * img.height);
-  const sw = Math.max(20, Math.round(((r - l + 1) / tw) * img.width));
-  const sh = Math.max(20, Math.round(((b - t + 1) / th) * img.height));
-  return { sx, sy, sw, sh };
-}
-
-function openPhotoCropper(fl, onDone) {
+function openPhotoCropper(srcOrFile, onDone) {
   const img = new Image();
   img.onload = () => {
-    const box = trimBlackBars(img);
-    let zoom = 1, offX = 0, offY = 0;
-    modal(`<h3 style="margin-top:0;text-align:center">Atur Posisi Foto Profil</h3>
-      <div style="display:flex;justify-content:center;margin:12px 0">
-        <canvas id="crop_cv" width="220" height="220" style="width:220px;height:220px;border-radius:50%;border:3px solid #46b0f8;background:#0b1d36"></canvas>
-      </div>
-      <div style="margin-bottom:8px">
-        <label class="m">Zoom (<span id="cz_lbl">100%</span>)</label>
-        <input id="cz_rng" type="range" min="100" max="250" value="100" style="width:100%">
-      </div>
-      <div style="margin-bottom:8px">
-        <label class="m">Geser Kiri / Kanan</label>
-        <input id="cx_rng" type="range" min="-50" max="50" value="0" style="width:100%">
-      </div>
-      <div style="margin-bottom:12px">
-        <label class="m">Geser Atas / Bawah</label>
-        <input id="cy_rng" type="range" min="-50" max="50" value="-15" style="width:100%">
-      </div>
-      <div class="btns">
-        <button class="b p" id="crop_ok">Simpan Foto</button>
-        <button class="b" onclick="modal('')">Batal</button>
-      </div>`);
-
-    offY = -15;
-    const cv = $('#crop_cv'), ctx = cv.getContext('2d');
-    const draw = () => {
-      const size = 220;
-      ctx.clearRect(0, 0, size, size);
-      const baseScale = Math.max(size / box.sw, size / box.sh) * zoom;
-      const dw = box.sw * baseScale;
-      const dh = box.sh * baseScale;
-      const maxX = Math.max(0, (dw - size) / 2);
-      const maxY = Math.max(0, (dh - size) / 2);
-      const dx = (size - dw) / 2 - (offX / 50) * maxX;
-      const dy = (size - dh) / 2 - (offY / 50) * maxY;
-      ctx.drawImage(img, box.sx, box.sy, box.sw, box.sh, dx, dy, dw, dh);
+    let rot = 0;
+    const getRotatedCanvas = () => {
+      const swap = rot % 180 !== 0;
+      const c = document.createElement('canvas');
+      c.width = swap ? img.height : img.width;
+      c.height = swap ? img.width : img.height;
+      const cx = c.getContext('2d');
+      cx.translate(c.width / 2, c.height / 2);
+      cx.rotate((rot * Math.PI) / 180);
+      cx.drawImage(img, -img.width / 2, -img.height / 2);
+      return c;
     };
-    draw();
-    $('#cz_rng').oninput = e => { zoom = +e.target.value / 100; $('#cz_lbl').textContent = e.target.value + '%'; draw(); };
-    $('#cx_rng').oninput = e => { offX = +e.target.value; draw(); };
-    $('#cy_rng').oninput = e => { offY = +e.target.value; draw(); };
-    $('#crop_ok').onclick = async () => {
+
+    modal(`
+      <div style="text-align:center;margin-bottom:8px;font-weight:700;font-size:15px">Sesuaikan Foto Profil</div>
+      <div class="m" style="text-align:center;font-size:12px;margin-bottom:10px">Seret kotak atau tarik sudut putih untuk menyesuaikan</div>
+      <div style="display:flex;justify-content:center;background:#050b14;border-radius:12px;padding:8px;touch-action:none">
+        <canvas id="wa_cv" width="300" height="340" style="max-width:100%;border-radius:8px;cursor:move;touch-action:none"></canvas>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding:0 4px">
+        <button class="b" onclick="modal('')" style="color:#4ade80;border-color:transparent;background:transparent;font-weight:700;font-size:15px">Batal</button>
+        <button class="b" id="wa_rot" title="Putar 90°" style="font-size:18px;padding:6px 14px;border-radius:999px">↻</button>
+        <button class="b" id="wa_done" style="color:#4ade80;border-color:transparent;background:transparent;font-weight:700;font-size:15px">Selesai</button>
+      </div>
+    `);
+
+    const cv = $('#wa_cv'), ctx = cv.getContext('2d');
+    let srcCv = getRotatedCanvas();
+    let imgBox = { x: 0, y: 0, w: 300, h: 340, scale: 1 };
+    let crop = { x: 40, y: 60, size: 220 };
+    let drag = null;
+
+    const resetLayout = () => {
+      srcCv = getRotatedCanvas();
+      const scale = Math.min(cv.width / srcCv.width, cv.height / srcCv.height);
+      const dw = srcCv.width * scale, dh = srcCv.height * scale;
+      imgBox = { x: (cv.width - dw) / 2, y: (cv.height - dh) / 2, w: dw, h: dh, scale };
+      const sz = Math.min(dw, dh) * 0.85;
+      crop = { x: imgBox.x + (dw - sz) / 2, y: imgBox.y + (dh - sz) / 2, size: sz };
+    };
+
+    const clampCrop = () => {
+      const minSz = 60;
+      const maxSz = Math.min(imgBox.w, imgBox.h);
+      crop.size = Math.max(minSz, Math.min(maxSz, crop.size));
+      crop.x = Math.max(imgBox.x, Math.min(imgBox.x + imgBox.w - crop.size, crop.x));
+      crop.y = Math.max(imgBox.y, Math.min(imgBox.y + imgBox.h - crop.size, crop.y));
+    };
+
+    const draw = () => {
+      ctx.clearRect(0, 0, cv.width, cv.height);
+      ctx.drawImage(srcCv, imgBox.x, imgBox.y, imgBox.w, imgBox.h);
+
+      // Gelapkan area di luar kotak crop seperti WhatsApp
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.58)';
+      ctx.fillRect(0, 0, cv.width, crop.y);
+      ctx.fillRect(0, crop.y + crop.size, cv.width, cv.height - (crop.y + crop.size));
+      ctx.fillRect(0, crop.y, crop.x, crop.size);
+      ctx.fillRect(crop.x + crop.size, crop.y, cv.width - (crop.x + crop.size), crop.size);
+
+      // Garis tepi kotak & grid 3x3
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(crop.x, crop.y, crop.size, crop.size);
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+      ctx.lineWidth = 1;
+      for (let i = 1; i <= 2; i++) {
+        const gx = crop.x + (crop.size * i) / 3;
+        const gy = crop.y + (crop.size * i) / 3;
+        ctx.beginPath(); ctx.moveTo(gx, crop.y); ctx.lineTo(gx, crop.y + crop.size); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(crop.x, gy); ctx.lineTo(crop.x + crop.size, gy); ctx.stroke();
+      }
+
+      // Pegangan sudut & tengah sisi tebal warna putih ala WhatsApp
+      const L = 18;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3.5;
+      const { x, y, size: s } = crop;
+      const corners = [
+        [[x, y + L], [x, y], [x + L, y]],
+        [[x + s - L, y], [x + s, y], [x + s, y + L]],
+        [[x, y + s - L], [x, y + s], [x + L, y + s]],
+        [[x + s - L, y + s], [x + s, y + s], [x + s, y + s - L]],
+      ];
+      corners.forEach(pts => {
+        ctx.beginPath();
+        ctx.moveTo(pts[0][0], pts[0][1]);
+        ctx.lineTo(pts[1][0], pts[1][1]);
+        ctx.lineTo(pts[2][0], pts[2][1]);
+        ctx.stroke();
+      });
+      // Pegangan tengah 4 sisi
+      const mid = L * 0.7;
+      ctx.beginPath();
+      ctx.moveTo(x + s / 2 - mid, y); ctx.lineTo(x + s / 2 + mid, y);
+      ctx.moveTo(x + s / 2 - mid, y + s); ctx.lineTo(x + s / 2 + mid, y + s);
+      ctx.moveTo(x, y + s / 2 - mid); ctx.lineTo(x, y + s / 2 + mid);
+      ctx.moveTo(x + s, y + s / 2 - mid); ctx.lineTo(x + s, y + s / 2 + mid);
+      ctx.stroke();
+    };
+
+    const getPos = e => {
+      const r = cv.getBoundingClientRect();
+      const t = e.touches ? e.touches[0] : e;
+      return { x: ((t.clientX - r.left) / r.width) * cv.width, y: ((t.clientY - r.top) / r.height) * cv.height };
+    };
+
+    const hitMode = p => {
+      const pad = 22;
+      const { x, y, size: s } = crop;
+      if (Math.hypot(p.x - x, p.y - y) < pad) return 'nw';
+      if (Math.hypot(p.x - (x + s), p.y - y) < pad) return 'ne';
+      if (Math.hypot(p.x - x, p.y - (y + s)) < pad) return 'sw';
+      if (Math.hypot(p.x - (x + s), p.y - (y + s)) < pad) return 'se';
+      if (p.x >= x && p.x <= x + s && p.y >= y && p.y <= y + s) return 'move';
+      return null;
+    };
+
+    const onDown = e => {
+      const p = getPos(e);
+      const mode = hitMode(p);
+      if (!mode) return;
+      e.preventDefault();
+      drag = { mode, start: p, orig: { ...crop } };
+    };
+
+    const onMove = e => {
+      if (!drag) return;
+      e.preventDefault();
+      const p = getPos(e);
+      const dx = p.x - drag.start.x, dy = p.y - drag.start.y;
+      const o = drag.orig;
+      if (drag.mode === 'move') {
+        crop.x = o.x + dx;
+        crop.y = o.y + dy;
+      } else if (drag.mode === 'se') {
+        crop.size = o.size + Math.max(dx, dy);
+      } else if (drag.mode === 'nw') {
+        const d = Math.min(dx, dy);
+        crop.x = o.x + d;
+        crop.y = o.y + d;
+        crop.size = o.size - d;
+      } else if (drag.mode === 'ne') {
+        const d = Math.max(dx, -dy);
+        crop.y = o.y - d;
+        crop.size = o.size + d;
+      } else if (drag.mode === 'sw') {
+        const d = Math.max(-dx, dy);
+        crop.x = o.x - d;
+        crop.size = o.size + d;
+      }
+      clampCrop();
+      draw();
+    };
+
+    const onUp = () => { drag = null; };
+
+    cv.addEventListener('mousedown', onDown);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    cv.addEventListener('touchstart', onDown, { passive: false });
+    window.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('touchend', onUp);
+
+    $('#wa_rot').onclick = () => { rot = (rot + 90) % 360; resetLayout(); draw(); };
+    $('#wa_done').onclick = async () => {
+      const sx = Math.max(0, ((crop.x - imgBox.x) / imgBox.w) * srcCv.width);
+      const sy = Math.max(0, ((crop.y - imgBox.y) / imgBox.h) * srcCv.height);
+      const sw = Math.min(srcCv.width - sx, (crop.size / imgBox.w) * srcCv.width);
+      const sh = Math.min(srcCv.height - sy, (crop.size / imgBox.h) * srcCv.height);
       const out = document.createElement('canvas');
       out.width = 300; out.height = 300;
-      out.getContext('2d').drawImage(cv, 0, 0, 300, 300);
+      out.getContext('2d').drawImage(srcCv, sx, sy, sw, sh, 0, 0, 300, 300);
       modal('');
       await onDone(out.toDataURL('image/jpeg', 0.88));
     };
+
+    resetLayout();
+    draw();
   };
-  img.src = URL.createObjectURL(fl);
+  img.src = typeof srcOrFile === 'string' ? srcOrFile : URL.createObjectURL(srcOrFile);
 }
 
 function openInfoProfile() {
