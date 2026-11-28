@@ -646,15 +646,7 @@ function vMateri() {
 function vAtur() {
   const st = Object.entries(S.staff || {});
   return `<h2>Pengaturan</h2>
-  <div class="card"><h3 style="margin-top:0">Profil pelatih</h3><div class="row"><input id="nm" value="${E(S.staff[uid]?.nama || '')}"><button class="b p" onclick="save('staff/${uid}',{...S.staff['${uid}'],nama:v('nm').trim()})">Simpan</button></div></div>
-  <div class="card"><h3 style="margin-top:0">Kode akses pelatih</h3><div class="row"><input id="kd" value="${E(S.cfg.main?.kode)}"><button class="b p" onclick="save('cfg/main',{...(S.cfg.main||{}),kode:v('kd').trim()});toast('Tersimpan')">Simpan</button></div></div>
-  <div class="card"><h3 style="margin-top:0">Cadangan Data (Backup & Restore)</h3>
-    <p class="m" style="margin-top:0">Simpan salinan seluruh data Wilayah, Cabang, Unit, Anggota, Absensi & Nilai ke perangkat Anda.</p>
-    <div class="row">
-      <button class="b p" onclick="downloadBackup()">💾 Download Backup (.json)</button>
-      <label class="b" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">📂 Pulihkan dari Backup<input type="file" accept=".json,application/json" style="display:none" onchange="restoreBackup(this.files[0])"></label>
-    </div>
-  </div>
+  <div class="card"><h3 style="margin-top:0">Profil pelatih</h3><div class="row"><input id="nm" value="${E(S.staff[uid]?.nama || '')}"><button class="b p" onclick="save('staff/${uid}',{...S.staff['${uid}'],nama:v('nm').trim()});toast('Nama pelatih disimpan')">Simpan</button></div></div>
   <div class="card"><h3 style="margin-top:0">Daftar pelatih</h3>${st.map(([id, s]) => `<div class="row" style="justify-content:space-between">${E(s.nama)} <button class="b d" onclick="del('staff/${id}')">Hapus</button></div>`).join('') || '<p class="m">Belum ada pelatih.</p>'}</div>`;
 }
 
