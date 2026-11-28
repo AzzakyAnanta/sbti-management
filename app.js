@@ -41,7 +41,7 @@ let uid, role = null, view = '', sel = null, Q = '', QSabuk = '';
 let S = { wilayah: {}, cabang: {}, unit: {}, murid: {}, staff: {}, sesi: {}, absen: {}, nilai: {}, materi: {}, cfg: {}, meta: { sabuk: SABUK_LIST } };
 let PUB = { wilayah: {}, cabang: {}, unit: {}, site: {} };
 let F = { w: '', c: '', u: '' };
-let R = { p: today().slice(0, 7), mode: 'ind', u: '' };
+let R = { p: today().slice(0, 7), mode: 'ind', u: '', pelatih: '' };
 let absDate = today(), calModalMonth = today().slice(0, 7);
 
 const toast = t => {
@@ -280,7 +280,7 @@ function vDash() {
     ${td.length ? td.map(s => {
       const targetMs = s.unit ? ms.filter(m => m.unit === s.unit) : ms;
       const belum = targetMs.filter(m => !S.absen[s.id + '_' + m.id]);
-      return `<p><b>${E(s.materi)}</b> — sudah absen ${targetMs.length - belum.length} dari ${targetMs.length}</p>`;
+      return `<p><b>${E(s.materi)}</b>${s.jam ? ` <span class="m">(🕒 ${E(s.jam)})</span>` : ''} — sudah absen ${targetMs.length - belum.length} dari ${targetMs.length}</p>`;
     }).join('') : '<p class="m">Belum ada latihan hari ini. Buat latihan di menu Latihan & Absen.</p>'}
   </div>
   <div class="card"><h3 style="margin-top:0">Ringkasan perkembangan (${fm(p)})</h3>
@@ -368,20 +368,39 @@ async function mSave(id) {
   modal('');
 }
 
+function jamOptions(def) {
+  const opts = [];
+  for (let h = 5; h <= 22; h++) {
+    for (const m of ['00', '30']) {
+      const t = String(h).padStart(2, '0') + ':' + m;
+      opts.push(`<option value="${t}" ${t === def ? 'selected' : ''}>${t}</option>`);
+    }
+  }
+  return opts.join('');
+}
+
 function vLatihan() {
   if (sel && S.sesi[sel]) return vSesi();
   const us = listUnit(F.c, F.w), kats = ['Fisik', 'Kelincahan', 'Kekuatan', 'Jurus'];
   return `<h2>Latihan & Absensi</h2>${filterBarHTML()}
   <div class="card"><h3 style="margin-top:0">Buat latihan baru</h3>
-    <div class="row"><select id="su"><option value="">Pilih unit latihan</option>${us.map(u => `<option value="${u.id}" ${F.u === u.id ? 'selected' : ''}>${E(unitLabel(u.id))}</option>`).join('')}</select><input id="st" type="date" value="${today()}"></div>
+    <div class="row">
+      <select id="su"><option value="">Pilih unit latihan</option>${us.map(u => `<option value="${u.id}" ${F.u === u.id ? 'selected' : ''}>${E(unitLabel(u.id))}</option>`).join('')}</select>
+      <input id="st" type="date" value="${today()}">
+      <div style="display:inline-flex;align-items:center;gap:6px">
+        <select id="sj1" title="Jam Mulai Latihan">${jamOptions('07:00')}</select>
+        <span class="m">s/d</span>
+        <select id="sj2" title="Jam Selesai Latihan">${jamOptions('10:00')}</select>
+      </div>
+    </div>
     <div class="row">${kats.map((k, idx) => `<label style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--l);border-radius:8px;cursor:pointer;background:var(--c)"><input type="checkbox" name="skat" value="${k}" ${idx === 0 ? 'checked' : ''} style="margin:0"><span>${KAT_ICONS[k]} ${k}</span></label>`).join('')}</div>
     <div class="row"><input id="sm" placeholder="Keterangan (opsional, mis. Jurus 1–3)" style="flex:1;min-width:220px"><button class="b p" onclick="addSesi()">Simpan Latihan</button></div>
   </div>
-  <div class="card tw"><table><tr><th>Tanggal</th><th>Unit</th><th>Materi</th><th>Hadir</th><th>Dinilai</th><th></th></tr>
+  <div class="card tw"><table><tr><th>Tanggal & Jam</th><th>Unit</th><th>Materi</th><th>Hadir</th><th>Dinilai</th><th></th></tr>
     ${sesiList(true).map(s => {
       const hadir = Object.keys(S.absen).filter(x => x.startsWith(s.id + '_') && S.absen[x].status === 'hadir').length;
       const dinilai = Object.keys(S.nilai).filter(x => x.startsWith(s.id + '_')).length;
-      return `<tr><td>${fd(s.tgl)}</td><td>${E(S.unit[s.unit]?.nama || 'Semua Unit')}</td><td>${E(s.materi)}</td><td>${hadir}</td><td>${dinilai}</td><td><button class="b" onclick="sel='${s.id}';render()">Buka</button></td></tr>`;
+      return `<tr><td>${fd(s.tgl)}${s.jam ? `<div class="m" style="font-size:12px">🕒 ${E(s.jam)}</div>` : ''}</td><td>${E(S.unit[s.unit]?.nama || 'Semua Unit')}</td><td>${E(s.materi)}</td><td>${hadir}</td><td>${dinilai}</td><td><button class="b" onclick="sel='${s.id}';render()">Buka</button></td></tr>`;
     }).join('') || '<tr><td colspan="6" class="m">Belum ada latihan.</td></tr>'}
   </table></div>`;
 }
@@ -390,13 +409,24 @@ async function addSesi() {
   const checked = [...document.querySelectorAll('input[name="skat"]:checked')].map(el => el.value);
   const materi = [checked.join(', '), v('sm').trim()].filter(Boolean).join(' — ');
   if (!materi || !v('st')) return toast('Pilih materi atau isi keterangan');
-  await save('sesi/s' + Date.now(), { tgl: v('st'), unit: v('su'), materi, pelatih: S.staff[uid]?.nama || 'Pelatih' });
+  const jm1 = v('sj1'), jm2 = v('sj2');
+  const jam = (jm1 && jm2) ? `${jm1} - ${jm2}` : (jm1 || '');
+  await save('sesi/s' + Date.now(), { tgl: v('st'), jam, unit: v('su'), materi, pelatih: S.staff[uid]?.nama || 'Pelatih' });
 }
 
 function vSesi() {
   const s = S.sesi[sel], ms = muridList(false, false).filter(m => !s.unit || m.unit === s.unit);
+  const [defJ1, defJ2] = (s.jam || '07:00 - 10:00').split(' - ');
   return `<div class="row"><button class="b" onclick="sel=null;render()">← Kembali</button><h2 style="margin:0">${fd(s.tgl)}</h2></div>
-  <div class="card"><div class="row"><input id="et" type="date" value="${s.tgl}"><input id="em" value="${E(s.materi)}" style="flex:1"><button class="b p" onclick="save('sesi/${sel}',{...S.sesi['${sel}'],tgl:v('et'),materi:v('em').trim()})">Simpan</button><button class="b d" onclick="if(confirm('Hapus latihan?')){const id=sel;sel=null;del('sesi/'+id)}">Hapus Latihan</button></div></div>
+  <div class="card"><div class="row">
+    <input id="et" type="date" value="${s.tgl}">
+    <select id="ej1">${jamOptions((defJ1 || '07:00').trim())}</select>
+    <span class="m">s/d</span>
+    <select id="ej2">${jamOptions((defJ2 || '10:00').trim())}</select>
+    <input id="em" value="${E(s.materi)}" style="flex:1">
+    <button class="b p" onclick="save('sesi/${sel}',{...S.sesi['${sel}'],tgl:v('et'),jam:v('ej1')+' - '+v('ej2'),materi:v('em').trim()})">Simpan</button>
+    <button class="b d" onclick="if(confirm('Hapus latihan?')){const id=sel;sel=null;del('sesi/'+id)}">Hapus Latihan</button>
+  </div></div>
   <div class="card tw"><table><tr><th>Nama</th><th>Sabuk</th><th>Absensi</th><th>Jam Absen</th><th>Rata-rata</th><th></th></tr>
     ${ms.map(m => {
       const ab = S.absen[sel + '_' + m.id], a = ab?.status || '';
@@ -429,7 +459,8 @@ function rptHTML(u, p) {
   const wId = S.cabang?.[S.unit?.[m.unit]?.cabang]?.wilayah || '';
   const daftarStaff = Object.values(S.staff || {});
   const pelatihWilayah = (wId && daftarStaff.find(st => st.wilayah === wId)?.nama) || daftarStaff[0]?.nama;
-  const namaPelatih = (role === 'pelatih' ? S.staff[uid]?.nama : '') || nilaiMurid || pelatihSesi || pelatihUnitLain || pelatihWilayah || '-';
+  const defaultPelatih = (role === 'pelatih' ? S.staff[uid]?.nama : '') || nilaiMurid || pelatihSesi || pelatihUnitLain || pelatihWilayah || '-';
+  const namaPelatih = R.pelatih || defaultPelatih;
   const isMob = window.innerWidth <= 640;
   const fw = isMob ? 84 : 112, fh = isMob ? 112 : 148;
   const fotoBox = m.foto
@@ -469,12 +500,21 @@ function vRaport() {
   const ms = staff ? muridList(true, true) : [S.murid[uid] ? { id: uid, ...S.murid[uid] } : null].filter(Boolean);
   if (!staff) R = { ...R, mode: 'ind', u: uid };
   if (!R.u || !ms.some(m => m.id === R.u)) R.u = ms[0]?.id || '';
+  const daftarPelatih = [...new Set([
+    ...Object.values(S.staff || {}).map(x => x.nama).filter(Boolean),
+    ...Object.values(S.sesi || {}).map(x => x.pelatih).filter(Boolean)
+  ])];
+  const mAktif = S.murid[R.u];
+  const pelatihSesi = mAktif ? Object.values(S.sesi || {}).find(s => ym(s.tgl) === R.p && (!s.unit || s.unit === mAktif.unit) && s.pelatih)?.pelatih : '';
+  const pelatihAktif = R.pelatih || (role === 'pelatih' && S.staff?.[uid]?.nama) || pelatihSesi || daftarPelatih[0] || '';
+  if (!R.pelatih && pelatihAktif) R.pelatih = pelatihAktif;
   return `<h2>Raport Bulanan</h2>${staff ? filterBarHTML() : ''}
   <div class="row np"><input type="month" value="${R.p}" onchange="R.p=this.value||R.p;render()">
     ${staff ? `<select onchange="R.mode=this.value;render()"><option value="ind" ${R.mode === 'ind' ? 'selected' : ''}>Raport individu</option><option value="all" ${R.mode === 'all' ? 'selected' : ''}>Rekap seluruh anggota</option></select>
       ${R.mode === 'ind' ? `<select onchange="R.u=this.value;render()">${ms.map(m => `<option value="${m.id}" ${m.id === R.u ? 'selected' : ''}>${E(m.nama)}</option>`).join('')}</select>` : ''}` : `<label class="b" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">📷 Upload Foto Raport<input type="file" accept="image/*" style="display:none" onchange="uploadMyFoto(this.files[0])"></label>`}
     <button class="b p" onclick="window.print()">Cetak Raport</button>
     <button class="b" onclick="toast('Pilih Simpan sebagai PDF pada dialog cetak');window.print()">Download PDF</button>
+    ${R.mode === 'ind' ? `<select title="Pilih Nama Pelatih" onchange="R.pelatih=this.value;render()"><option value="">-- Pilih Pelatih --</option>${daftarPelatih.map(nm => `<option value="${E(nm)}" ${nm === pelatihAktif ? 'selected' : ''}>${E(nm)}</option>`).join('')}</select>` : ''}
   </div>${R.mode === 'all' && staff ? rekapHTML(R.p) : R.u ? rptHTML(R.u, R.p) : '<div class="card">Belum ada anggota.</div>'}`;
 }
 
@@ -517,7 +557,7 @@ function downloadICS() {
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//SBTI Management//ID'];
   list.forEach(s => {
     const d = s.tgl.replace(/-/g, '');
-    lines.push('BEGIN:VEVENT', `UID:${s.id}@sbti`, `DTSTART;VALUE=DATE:${d}`, `DTEND;VALUE=DATE:${d}`, `SUMMARY:Latihan SBTI - ${s.materi}`, `DESCRIPTION:Unit: ${unitLabel(me.unit)}`, 'END:VEVENT');
+    lines.push('BEGIN:VEVENT', `UID:${s.id}@sbti`, `DTSTART;VALUE=DATE:${d}`, `DTEND;VALUE=DATE:${d}`, `SUMMARY:Latihan SBTI - ${s.materi}${s.jam ? ' (' + s.jam + ')' : ''}`, `DESCRIPTION:Unit: ${unitLabel(me.unit)}`, 'END:VEVENT');
   });
   lines.push('END:VCALENDAR');
   const a = document.createElement('a');
@@ -612,7 +652,7 @@ function vAbsen() {
   </div>
   ${ss.length ? ss.map(s => {
     const ab = S.absen[s.id + '_' + uid], a = ab?.status;
-    return `<div class="card"><b>${E(s.materi)}</b><div class="m">${fdShort(s.tgl)}</div>
+    return `<div class="card"><b>${E(s.materi)}</b><div class="m">${fdShort(s.tgl)}${s.jam ? ` · 🕒 ${E(s.jam)}` : ''}</div>
       ${isToday
         ? `<div class="btns">${['hadir', 'izin', 'sakit'].map(k => `<button class="b ${a === k ? 'on' : ''}" onclick="save('absen/${s.id}_${uid}',{sesi:'${s.id}',uid:'${uid}',status:'${k}'})">${cap(k)}</button>`).join('')}</div>`
         : `<p class="m" style="margin-bottom:0">Absensi mandiri hanya dibuka pada hari latihan berlangsung.</p>`}
@@ -640,7 +680,7 @@ function vAbsen() {
 function vMateri() {
   const me = S.murid[uid] || {};
   const ss = Object.entries(S.sesi || {}).map(([id, s]) => ({ id, ...s })).filter(s => !s.unit || s.unit === me.unit).sort((a, b) => b.tgl.localeCompare(a.tgl));
-  return `<h2>Materi Latihan</h2><div class="card">${ss.map(s => `<p style="border-bottom:1px solid var(--l);padding-bottom:8px"><b>${E(s.materi)}</b><br><span class="m">${fd(s.tgl)}</span></p>`).join('') || '<p class="m">Belum ada materi latihan.</p>'}</div>`;
+  return `<h2>Materi Latihan</h2><div class="card">${ss.map(s => `<p style="border-bottom:1px solid var(--l);padding-bottom:8px"><b>${E(s.materi)}</b><br><span class="m">${fd(s.tgl)}${s.jam ? ` · 🕒 ${E(s.jam)}` : ''}</span></p>`).join('') || '<p class="m">Belum ada materi latihan.</p>'}</div>`;
 }
 
 function vAtur() {
@@ -821,14 +861,12 @@ function openPhotoCropper(srcOrFile, onDone) {
       ctx.clearRect(0, 0, cv.width, cv.height);
       ctx.drawImage(srcCv, imgBox.x, imgBox.y, imgBox.w, imgBox.h);
 
-      // Gelapkan area di luar kotak crop seperti WhatsApp
       ctx.fillStyle = 'rgba(0, 0, 0, 0.58)';
       ctx.fillRect(0, 0, cv.width, crop.y);
       ctx.fillRect(0, crop.y + crop.size, cv.width, cv.height - (crop.y + crop.size));
       ctx.fillRect(0, crop.y, crop.x, crop.size);
       ctx.fillRect(crop.x + crop.size, crop.y, cv.width - (crop.x + crop.size), crop.size);
 
-      // Garis tepi kotak & grid 3x3
       ctx.strokeStyle = 'rgba(255,255,255,0.85)';
       ctx.lineWidth = 1.5;
       ctx.strokeRect(crop.x, crop.y, crop.size, crop.size);
@@ -842,7 +880,6 @@ function openPhotoCropper(srcOrFile, onDone) {
         ctx.beginPath(); ctx.moveTo(crop.x, gy); ctx.lineTo(crop.x + crop.size, gy); ctx.stroke();
       }
 
-      // Pegangan sudut & tengah sisi tebal warna putih ala WhatsApp
       const L = 18;
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 3.5;
@@ -860,7 +897,6 @@ function openPhotoCropper(srcOrFile, onDone) {
         ctx.lineTo(pts[2][0], pts[2][1]);
         ctx.stroke();
       });
-      // Pegangan tengah 4 sisi
       const mid = L * 0.7;
       ctx.beginPath();
       ctx.moveTo(x + s / 2 - mid, y); ctx.lineTo(x + s / 2 + mid, y);
